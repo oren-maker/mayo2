@@ -1,0 +1,1549 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Social Groups Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root { --bg: #0a0a12; --bg2: #12121c; --bg3: #1a1a28; --border: #22223a; --text: #e8e8f0; --dim: #9a9ab0; --mute: #6a6a80; --green: #25d366; --green2: #128c7e; --cyan: #00d4ff; --red: #ef4444; --ig1: #f09433; --ig2: #e6683c; --ig3: #dc2743; --ig4: #cc2366; --ig5: #bc1888; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Heebo", system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  header { padding: 20px 28px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: linear-gradient(180deg, var(--bg2), var(--bg)); flex-wrap: wrap; gap: 12px; }
+  h1 { font-size: 22px; font-weight: 800; }
+  h1 .wa { color: var(--green); }
+  .health { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; font-size: 13px; cursor: pointer; }
+  .health:hover { border-color: var(--green); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 20px; overflow-x: auto; }
+  .tab { padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; background: var(--bg3); border: 1px solid var(--border); color: var(--dim); cursor: pointer; white-space: nowrap; }
+  .tab.active { background: var(--green); color: white; border-color: var(--green); }
+  body.ig-mode .tab.active { background: linear-gradient(135deg, var(--ig1), var(--ig3), var(--ig5)); color: white; border-color: transparent; }
+
+  .platform-switch { display: flex; background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 3px; }
+  .platform-btn { padding: 8px 16px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--dim); white-space: nowrap; transition: all 0.15s; }
+  .platform-btn.active[data-plat="whatsapp"], .platform-btn#plat-wa.active { background: var(--green); color: white; }
+  .platform-btn#plat-ig.active { background: linear-gradient(135deg, var(--ig1), var(--ig3), var(--ig5)); color: white; }
+
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; font-weight: 700; margin-bottom: 14px; }
+
+  label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  input, textarea, select { width: 100%; padding: 10px 14px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: inherit; font-size: 14px; margin-bottom: 12px; }
+  input:focus, textarea:focus { outline: none; border-color: var(--green); }
+  textarea { resize: vertical; min-height: 80px; }
+
+  button { padding: 10px 18px; border: none; border-radius: 8px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+  .btn-green { background: var(--green); color: white; }
+  .btn-green:hover { background: var(--green2); }
+  .btn-ghost { background: var(--bg3); color: var(--dim); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--green); color: var(--text); }
+  .btn-red { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+
+  .group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .group-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.15s; }
+  .group-card:hover { border-color: var(--green); transform: translateY(-2px); }
+  .group-card .name { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+  .group-card .meta { font-size: 12px; color: var(--dim); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { background: var(--bg3); color: var(--cyan); font-size: 12px; text-align: right; padding: 10px 12px; border-bottom: 2px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tr:hover td { background: rgba(37,211,102,0.05); }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--bg3); }
+
+  .loading { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 14px; padding: 30px; justify-content: center; }
+  .spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; padding: 12px; border-radius: 8px; font-size: 13px; margin: 12px 0; }
+  .success { background: rgba(37,211,102,0.1); border: 1px solid rgba(37,211,102,0.3); color: #86efac; padding: 12px; border-radius: 8px; font-size: 13px; margin: 12px 0; }
+  .empty { text-align: center; color: var(--mute); padding: 60px; font-size: 14px; }
+
+  .qr-wrap { text-align: center; padding: 20px; }
+  .qr-wrap img { max-width: 280px; border-radius: 12px; background: white; padding: 16px; }
+
+  .actions-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+
+  .broadcast-area { margin-top: 16px; }
+  .broadcast-area textarea { min-height: 100px; }
+  .selected-count { font-size: 13px; color: var(--green); font-weight: 600; margin: 8px 0; }
+
+  @media (max-width: 600px) { .group-grid { grid-template-columns: 1fr; } }
+  .stat-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+  .stat-val { font-size: 28px; font-weight: 800; line-height: 1 }
+  .stat-lbl { font-size: 11px; color: var(--dim); margin-top: 6px; }
+
+  .ig-engine-card { display: block; cursor: pointer; }
+  .ig-engine-card .ig-engine-inner {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 16px; background: var(--bg3);
+    border: 2px solid var(--border); border-radius: 12px;
+    transition: all 0.15s; position: relative;
+  }
+  .ig-engine-card:hover .ig-engine-inner { border-color: var(--ig3); background: var(--bg2); }
+  .ig-engine-card.selected .ig-engine-inner {
+    border-color: transparent;
+    background: linear-gradient(135deg, rgba(240,148,51,0.12), rgba(220,39,67,0.12), rgba(188,24,136,0.12));
+    box-shadow: 0 0 0 2px var(--ig3), 0 8px 24px rgba(220,39,67,0.2);
+  }
+  .ig-engine-check {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--bg); border: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: transparent; font-weight: 900; font-size: 14px;
+    flex-shrink: 0;
+  }
+  .ig-engine-card.selected .ig-engine-check {
+    background: linear-gradient(135deg, var(--ig1), var(--ig3)); border-color: transparent; color: white;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🌐 Social Groups <span class="wa">Manager</span></h1>
+  <div style="display:flex;gap:12px;align-items:center">
+    <div class="platform-switch">
+      <div class="platform-btn active" id="plat-wa" onclick="switchPlatform('whatsapp')">📱 וואטסאפ</div>
+      <div class="platform-btn" id="plat-ig" onclick="switchPlatform('instagram')">📷 אינסטגרם</div>
+    </div>
+    <div class="health" onclick="checkHealth()">
+      <div class="dot" id="health-dot"></div>
+      <span id="health-text">בודק...</span>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="tabs" id="wa-tabs">
+    <div class="tab active" onclick="switchTab('connect')">🔗 חיבור</div>
+    <div class="tab" onclick="switchTab('groups')">👥 קבוצות</div>
+    <div class="tab" onclick="switchTab('members')">📋 חברים</div>
+    <div class="tab" onclick="switchTab('saved')">💾 שמורות</div>
+    <div class="tab" onclick="switchTab('brands')">🏷️ מותגים</div>
+    <div class="tab" onclick="switchTab('send')">✉️ שליחה</div>
+  </div>
+  <div class="tabs" id="ig-tabs" style="display:none">
+    <div class="tab active" onclick="switchIgTab('connect')">🔗 חיבור</div>
+    <div class="tab" onclick="switchIgTab('followers')">👥 עוקבים</div>
+    <div class="tab" onclick="switchIgTab('scrape')">🔍 סקרייפינג פרופיל</div>
+    <div class="tab" onclick="switchIgTab('dm')">✉️ DMs</div>
+    <div class="tab" onclick="switchIgTab('content')">📸 תוכן</div>
+    <div class="tab" onclick="switchIgTab('agent')">🤖 Agent</div>
+  </div>
+  <div id="content"></div>
+</div>
+
+<script>
+let STATE = {
+  platform: "whatsapp",
+  tab: "connect",
+  igTab: "connect",
+  sessions: [],
+  activeSession: null,
+  groups: [],
+  selectedGroup: null,
+  members: [],
+  selectedMembers: new Set(),
+  igAccount: null,
+  igFollowers: [],
+  igSelectedFollowers: new Set(),
+  igScrapeTarget: "",
+  igScrapeResult: null,
+};
+
+function switchPlatform(p) {
+  STATE.platform = p;
+  document.getElementById("plat-wa").classList.toggle("active", p === "whatsapp");
+  document.getElementById("plat-ig").classList.toggle("active", p === "instagram");
+  document.getElementById("wa-tabs").style.display = p === "whatsapp" ? "flex" : "none";
+  document.getElementById("ig-tabs").style.display = p === "instagram" ? "flex" : "none";
+  document.body.classList.toggle("ig-mode", p === "instagram");
+  render();
+  setTimeout(() => {
+    if (p === "instagram" && STATE.igTab === "connect") {
+      selectIgAuth(document.querySelector("input[name='ig-auth']:checked")?.value || "token");
+      selectIgEngine(document.querySelector("input[name='ig-engine']:checked")?.value || "apify");
+    }
+  }, 50);
+}
+
+function switchIgTab(t) {
+  STATE.igTab = t;
+  document.querySelectorAll("#ig-tabs .tab").forEach((el, i) =>
+    el.classList.toggle("active", ["connect","followers","scrape","dm","content","agent"][i] === t)
+  );
+  render();
+  setTimeout(() => {
+    if (t === "connect") {
+      selectIgAuth(document.querySelector("input[name='ig-auth']:checked")?.value || "token");
+      selectIgEngine(document.querySelector("input[name='ig-engine']:checked")?.value || "apify");
+    }
+  }, 50);
+}
+
+function switchTab(t) {
+  STATE.tab = t;
+  const tabs = ["connect","groups","members","saved","brands","send"];
+  document.querySelectorAll("#wa-tabs .tab").forEach((el, i) => el.classList.toggle("active", tabs[i] === t));
+  render();
+}
+
+function render() {
+  const c = document.getElementById("content");
+  if (STATE.platform === "instagram") {
+    switch (STATE.igTab) {
+      case "connect": c.innerHTML = renderIgConnect(); break;
+      case "followers": c.innerHTML = renderIgFollowers(); break;
+      case "scrape": c.innerHTML = renderIgScrape(); break;
+      case "dm": c.innerHTML = renderIgDm(); break;
+      case "content": c.innerHTML = renderIgContent(); break;
+      case "agent": c.innerHTML = renderIgAgent(); break;
+    }
+    return;
+  }
+  switch (STATE.tab) {
+    case "connect": c.innerHTML = renderConnect(); break;
+    case "groups": c.innerHTML = renderGroups(); break;
+    case "members": c.innerHTML = renderMembers(); break;
+    case "saved": c.innerHTML = renderSaved(); loadSavedGroups(); break;
+    case "brands": c.innerHTML = renderBrands(); loadBrands(); break;
+    case "send": c.innerHTML = renderSend(); break;
+  }
+}
+
+// ========== BRANDS TAB ==========
+function renderBrands() {
+  if (STATE.activeBrandId) return renderBrandDetail();
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2>🏷️ מותגים</h2>
+        <button class="btn-green" onclick="createBrand()">➕ צור מותג חדש</button>
+      </div>
+      <div id="brands-list"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+    </div>
+  `;
+}
+
+async function loadBrands() {
+  try {
+    const r = await (await fetch("/api/brands")).json();
+    STATE.brands = r.brands || [];
+    const el = document.getElementById("brands-list");
+    if (!el) return;
+    if (!STATE.brands.length) { el.innerHTML = '<div class="empty">אין מותגים. לחץ "צור מותג חדש"</div>'; return; }
+    el.innerHTML = STATE.brands.map(b => `
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:10px;cursor:pointer;display:flex;align-items:center;gap:14px" onclick="openBrand('${b.id}')">
+        <div style="width:48px;height:48px;border-radius:12px;background:${b.color||'var(--green)'};display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏷️</div>
+        <div style="flex:1">
+          <div style="font-weight:800;font-size:16px;margin-bottom:2px">${esc(b.name)}</div>
+          <div style="font-size:12px;color:var(--dim)">${b.group_count} קבוצות · ${b.total_members} חברים (כולל כפולים)</div>
+        </div>
+        <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
+          <button class="btn-ghost" onclick="editBrand('${b.id}')">✏️</button>
+          <button class="btn-red" onclick="deleteBrand('${b.id}')">🗑</button>
+        </div>
+      </div>
+    `).join("");
+  } catch (e) {
+    document.getElementById("brands-list").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function createBrand() {
+  const name = prompt("שם מותג (לדוגמה: Sun Tribe):");
+  if (!name) return;
+  const r = await fetch("/api/brands", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (r.ok) { flash("✅ נוצר"); loadBrands(); }
+}
+
+async function editBrand(id) {
+  const b = STATE.brands.find(x => x.id === id);
+  const name = prompt("שם חדש:", b?.name || "");
+  if (!name) return;
+  await fetch(`/api/brands/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+  loadBrands();
+}
+
+async function deleteBrand(id) {
+  if (!confirm("למחוק את המותג? הקבוצות עצמן לא יימחקו")) return;
+  await fetch(`/api/brands/${id}`, { method: "DELETE" });
+  loadBrands();
+}
+
+async function openBrand(id) {
+  STATE.activeBrandId = id;
+  render();
+}
+
+function renderBrandDetail() {
+  setTimeout(tabLoadBrandDetail, 50);
+  return `
+    <div class="card">
+      <button class="btn-ghost" onclick="STATE.activeBrandId=null;render()" style="margin-bottom:12px">← חזרה למותגים</button>
+      <div id="brand-detail"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+    </div>
+  `;
+}
+
+function tabLoadBrandDetail() {
+  const id = STATE.activeBrandId;
+  if (!id) return;
+  Promise.all([
+    fetch(`/api/brands/${id}/stats`).then(r => r.json()),
+    fetch(`/api/brands/${id}/log`).then(r => r.json()),
+  ]).then(([stats, logR]) => {
+    const el = document.getElementById("brand-detail");
+    if (!el) return;
+    if (stats.error) { el.innerHTML = `<div class="error">${esc(stats.error)}</div>`; return; }
+    const b = stats.brand;
+    const log = logR.log || [];
+    const leaversCount = log.filter(l => l.type === "member_left").length;
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+        <div style="width:56px;height:56px;border-radius:14px;background:${b.color||'var(--green)'};display:flex;align-items:center;justify-content:center;font-size:26px">🏷️</div>
+        <div style="flex:1">
+          <h2 style="margin:0">${esc(b.name)}</h2>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">עודכן לאחרונה: ${stats.latest_saved_at ? new Date(stats.latest_saved_at).toLocaleString("he-IL") : "מעולם לא"}</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+        <div class="stat-card" style="cursor:default"><div class="stat-val" style="color:var(--green)">${stats.groups.length}</div><div class="stat-lbl">קבוצות</div></div>
+        <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','all','סה״כ חברים')"><div class="stat-val" style="color:var(--cyan)">${stats.total_sum}</div><div class="stat-lbl">סה"כ חברים (כולל כפולים)</div></div>
+        <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','unique','ייחודיים')"><div class="stat-val" style="color:#fbbf24">${stats.unique_members}</div><div class="stat-lbl">ייחודיים</div></div>
+        <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','duplicates','כפולים')"><div class="stat-val" style="color:var(--red)">${stats.duplicates}</div><div class="stat-lbl">כפולים</div></div>
+        <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','leavers','עזיבות')"><div class="stat-val" style="color:#fb923c">${leaversCount}</div><div class="stat-lbl">עזיבות (מצטבר)</div></div>
+      </div>
+
+      <div class="actions-row" style="margin-bottom:16px">
+        <button class="btn-green" onclick="exportBrand('${b.id}','all','${esc(b.name)}')">📊 ייצוא כל החברים</button>
+        <button class="btn-ghost" onclick="exportBrand('${b.id}','unique','${esc(b.name)}')">📊 ייצוא ייחודיים</button>
+        <button class="btn-ghost" onclick="exportBrand('${b.id}','duplicates','${esc(b.name)}')">📊 ייצוא כפולים</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <h3 style="font-size:14px;margin-bottom:10px;color:var(--dim)">📋 קבוצות במותג (${stats.groups.length})</h3>
+          <div style="max-height:400px;overflow-y:auto">
+            ${stats.groups.map(g => `
+              <div style="background:var(--bg3);padding:10px 12px;border-radius:8px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
+                <div style="flex:1;min-width:0"><div style="font-weight:600">${esc(g.groupName||g.groupId)}</div><div style="font-size:11px;color:var(--dim)">${g.memberCount||0} חברים · ${g.savedAt ? new Date(g.savedAt).toLocaleDateString("he-IL") : "—"}</div></div>
+                <button class="btn-green" style="padding:4px 10px;font-size:11px" onclick="exportSavedGroupByGid('${g.groupId}')">📊</button>
+                <button class="btn-red" style="padding:4px 10px;font-size:11px" onclick="removeGroupFromBrand('${b.id}','${g.groupId}')">🗑</button>
+              </div>
+            `).join("") || '<div class="empty">אין קבוצות במותג. הוסף מהטאב קבוצות →</div>'}
+          </div>
+          <button class="btn-green" style="width:100%;margin-top:10px" onclick="addGroupToBrandPrompt('${b.id}')">➕ שייך קבוצה למותג</button>
+        </div>
+
+        <div>
+          <h3 style="font-size:14px;margin-bottom:10px;color:var(--dim)">📜 לוג עדכונים (${log.length})</h3>
+          <div style="max-height:500px;overflow-y:auto">
+            ${log.length ? log.map(l => `
+              <div style="background:var(--bg3);padding:8px 12px;border-radius:8px;margin-bottom:4px;font-size:12px">
+                <span style="color:var(--dim)">${new Date(l.at).toLocaleString("he-IL")}</span> ·
+                <strong style="color:${logColor(l.type)}">${logLabel(l.type)}</strong>
+                ${l.groupName ? ' · ' + esc(l.groupName) : ''}
+                ${l.count ? ' · ' + l.count + ' חברים' : ''}
+                ${l.phone ? ' · ' + esc(l.phone) : ''}
+              </div>
+            `).join("") : '<div class="empty">אין עדכונים</div>'}
+          </div>
+        </div>
+      </div>
+    `;
+  });
+}
+
+function logColor(t) {
+  return { brand_created: "var(--green)", group_added: "var(--cyan)", group_removed: "var(--red)", members_joined: "#fbbf24", member_left: "#fb923c", brand_updated: "var(--dim)" }[t] || "var(--dim)";
+}
+function logLabel(t) {
+  return { brand_created: "🏷️ מותג נוצר", group_added: "➕ קבוצה נוספה", group_removed: "➖ קבוצה הוסרה", members_joined: "🆕 הצטרפו", member_left: "🚪 עזב", brand_updated: "✏️ עודכן" }[t] || t;
+}
+
+async function removeGroupFromBrand(brandId, groupId) {
+  if (!confirm("להסיר את הקבוצה מהמותג?")) return;
+  await fetch(`/api/brands/${brandId}/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+  tabLoadBrandDetail();
+}
+
+async function exportBrand(brandId, type, brandName) {
+  const r = await (await fetch(`/api/brands/${brandId}/export?type=${type}`)).json();
+  if (r.url) { const a = document.createElement("a"); a.href = r.url; a.download = r.filename; a.click(); flash(`✅ ${r.rows} שורות יוצאו`); }
+  else alert("שגיאה: " + (r.error||""));
+}
+
+async function exportSavedGroupByGid(groupId) {
+  // Find file name from saved groups list
+  const savedR = await (await fetch("/api/saved-groups")).json();
+  const match = savedR.groups?.find(g => g.groupId === groupId);
+  if (!match) return alert("לא נמצא");
+  const full = await (await fetch(`/api/saved-groups/${match.file}`)).json();
+  const r = await fetch("/api/export-excel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupName: full.groupName, participants: full.members }),
+  });
+  const d = await r.json();
+  if (d.url) { const a = document.createElement("a"); a.href = d.url; a.download = d.filename; a.click(); flash(`✅ ${d.rows} שורות`); }
+}
+
+async function openBrandMembers(brandId, type, label) {
+  const r = await (await fetch(`/api/brands/${brandId}/members?type=${type}`)).json();
+  if (!r.members) return alert("שגיאה");
+
+  let modal = document.getElementById("members-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "members-modal";
+    modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px";
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:1000px;width:100%;max-height:90vh;display:flex;flex-direction:column">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <h3 style="margin:0">${esc(label)} · ${r.brand.name}</h3>
+          <div style="font-size:12px;color:var(--dim);margin-top:2px">${r.members.length} רשומות</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-green" onclick="exportBrand('${brandId}','${type}','${esc(r.brand.name)}')">📊 ייצוא Excel</button>
+          <button class="btn-ghost" onclick="document.getElementById('members-modal').remove()">✕</button>
+        </div>
+      </div>
+      <div style="overflow-y:auto;flex:1;padding:12px 22px">
+        <table>
+          <thead><tr><th style="width:40px">#</th><th style="width:50px">תמונה</th><th>שם</th><th>טלפון</th><th>קבוצות</th></tr></thead>
+          <tbody>${r.members.slice(0, 1000).map((m, i) => `
+            <tr>
+              <td>${i+1}</td>
+              <td>${m.imgUrl ? `<img class="avatar" src="${esc(m.imgUrl)}" onerror="this.style.display='none'" />` : '<div class="avatar"></div>'}</td>
+              <td>${esc(m.name||"—")}</td>
+              <td dir="ltr" style="font-family:monospace"><a href="https://wa.me/${m.phone}" target="_blank" style="color:var(--green)">${m.phone}</a></td>
+              <td style="font-size:11px;color:var(--dim)">${esc((m.groups||[]).join(", "))}</td>
+            </tr>
+          `).join("")}</tbody>
+        </table>
+        ${r.members.length > 1000 ? `<div style="text-align:center;color:var(--dim);margin-top:10px">מוצגים 1000 מתוך ${r.members.length} — יצא ל-Excel לרשימה המלאה</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+async function addGroupToBrandPrompt(brandId) {
+  const savedR = await (await fetch("/api/saved-groups")).json();
+  const groups = savedR.groups || [];
+  if (!groups.length) return alert("אין קבוצות שמורות. שמור קבוצה קודם מעמוד חברים");
+  const opts = groups.map((g, i) => `${i + 1}. ${g.groupName} (${g.memberCount})`).join("\n");
+  const choice = prompt("בחר מספר קבוצה לשייך:\n\n" + opts);
+  const idx = parseInt(choice) - 1;
+  if (isNaN(idx) || !groups[idx]) return;
+  const g = groups[idx];
+  await fetch(`/api/brands/${brandId}/groups`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupId: g.groupId, groupName: g.groupName }),
+  });
+  tabLoadBrandDetail();
+}
+
+function renderSaved() {
+  return `
+    <div class="card" style="padding:18px">
+      <h2>🏷️ מותגים</h2>
+      <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap;align-items:center">
+        <input id="new-brand-name" placeholder="שם מותג חדש (לדוגמה: Sun Tribe)" style="flex:1;min-width:200px;margin:0" />
+        <button class="btn-green" onclick="quickCreateBrand()">➕ צור מותג</button>
+      </div>
+      <div id="brands-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h2>💾 קבוצות שמורות</h2>
+      <div class="actions-row">
+        <button class="btn-green" onclick="mergeAllGroups()">🔀 איחוד + הסרת כפולים → Excel</button>
+        <button class="btn-ghost" onclick="loadSavedGroups()">🔄 רענן</button>
+      </div>
+      <div id="merge-result"></div>
+      <div id="saved-list"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+    </div>
+  `;
+}
+
+async function quickCreateBrand() {
+  const name = document.getElementById("new-brand-name").value.trim();
+  if (!name) return alert("הזן שם מותג");
+  const r = await fetch("/api/brands", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+  if (r.ok) {
+    document.getElementById("new-brand-name").value = "";
+    flash("✅ נוצר מותג: " + name);
+    loadBrandsForSavedTab();
+    loadSavedGroups();
+  } else alert("שגיאה");
+}
+
+async function loadBrandsForSavedTab() {
+  try {
+    const r = await (await fetch("/api/brands")).json();
+    STATE.brands = r.brands || [];
+    const el = document.getElementById("brands-chips");
+    if (!el) return;
+    if (!STATE.brands.length) {
+      el.innerHTML = '<div style="color:var(--dim);font-size:13px">אין מותגים עדיין. צור אחד למעלה.</div>';
+      return;
+    }
+    el.innerHTML = STATE.brands.map(b => `
+      <div onclick="STATE.tab='brands';STATE.activeBrandId='${b.id}';switchTab('brands')" style="background:${b.color||'var(--green)'};color:white;padding:8px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+        🏷️ ${esc(b.name)}
+        <span style="background:rgba(0,0,0,0.3);padding:2px 8px;border-radius:10px;font-size:11px">${b.group_count} קבוצות · ${b.total_members}</span>
+      </div>
+    `).join("");
+  } catch {}
+}
+
+async function mergeAllGroups() {
+  const el = document.getElementById("merge-result");
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>מאחד ומסיר כפולים...</div>';
+  try {
+    const r = await fetch("/api/saved-groups/merge-export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    el.innerHTML = `
+      <div class="success" style="margin:12px 0">
+        ✅ אוחדו ${d.groups_merged} קבוצות · ${d.total_before_dedup} רשומות → ${d.unique_members} ייחודיים (הוסרו ${d.duplicates_removed} כפולים)
+        <div style="margin-top:10px"><a href="${d.url}" download="${d.filename}" style="color:var(--green);font-weight:700;text-decoration:none">⬇ הורד ${d.filename}</a></div>
+      </div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function loadSavedGroups() {
+  try {
+    const [savedR, brandsR] = await Promise.all([
+      fetch("/api/saved-groups").then(r => r.json()),
+      fetch("/api/brands").then(r => r.json()),
+    ]);
+    STATE.brands = brandsR.brands || [];
+    const groupToBrands = new Map();
+    for (const b of STATE.brands) {
+      for (const gid of b.groupIds) {
+        if (!groupToBrands.has(gid)) groupToBrands.set(gid, []);
+        groupToBrands.get(gid).push(b);
+      }
+    }
+    loadBrandsForSavedTab();
+
+    const el = document.getElementById("saved-list");
+    if (!el) return;
+    if (!savedR.groups?.length) { el.innerHTML = '<div class="empty">אין קבוצות שמורות. לחץ "💾 שמור" בעמוד חברים</div>'; return; }
+    el.innerHTML = savedR.groups.map(g => {
+      const currentBrands = groupToBrands.get(g.groupId) || [];
+      const availableBrands = STATE.brands.filter(b => !b.groupIds.includes(g.groupId));
+      const brandChips = currentBrands.length
+        ? currentBrands.map(b => `<span style="background:${b.color||'var(--green)'};color:white;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:6px">🏷️ ${esc(b.name)} <span onclick="event.stopPropagation();removeGroupBrand('${b.id}','${g.groupId}')" style="cursor:pointer;opacity:0.7;margin-right:2px">✕</span></span>`).join(" ")
+        : '';
+      const addBrandControl = availableBrands.length
+        ? `<select onchange="addGroupToBrandInline(this.value,'${g.groupId}','${esc(g.groupName)}');this.value=''" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;margin:0">
+             <option value="">➕ שייך למותג...</option>
+             ${availableBrands.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join("")}
+           </select>`
+        : (STATE.brands.length ? '' : '<span style="font-size:11px;color:var(--dim)">צור מותג למעלה כדי לשייך</span>');
+      return `
+        <div style="padding:14px;background:var(--bg3);border-radius:10px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--green2));display:flex;align-items:center;justify-content:center;font-size:22px">👥</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700">${esc(g.groupName)}</div>
+              <div style="font-size:12px;color:var(--dim)">${g.memberCount} חברים · נשמר ${new Date(g.savedAt).toLocaleString("he-IL")}</div>
+            </div>
+            <button class="btn-green" onclick="loadSavedGroup('${esc(g.file)}')">📂 פתח</button>
+            <button class="btn-ghost" onclick="deleteSavedGroup('${esc(g.file)}')">🗑</button>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            ${brandChips}
+            ${addBrandControl}
+          </div>
+        </div>
+      `;
+    }).join("");
+  } catch (e) {
+    document.getElementById("saved-list").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function addGroupToBrandInline(brandId, groupId, groupName) {
+  if (!brandId) return;
+  await fetch(`/api/brands/${brandId}/groups`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupId, groupName }),
+  });
+  flash("✅ שויך למותג");
+  loadSavedGroups();
+}
+
+async function removeGroupBrand(brandId, groupId) {
+  await fetch(`/api/brands/${brandId}/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+  loadSavedGroups();
+}
+
+async function loadSavedGroup(file) {
+  const r = await (await fetch(`/api/saved-groups/${file}`)).json();
+  STATE.selectedGroup = r.groupId;
+  STATE.selectedGroupName = r.groupName;
+  STATE.members = r.members;
+  STATE.selectedMembers = new Set();
+  switchTab("members");
+  setTimeout(renderMembersTable, 50);
+}
+
+async function deleteSavedGroup(file) {
+  if (!confirm("למחוק?")) return;
+  await fetch(`/api/saved-groups/${file}`, { method: "DELETE" });
+  loadSavedGroups();
+}
+
+// ========== CHECK PHONE VALIDITY ==========
+async function checkValidity() {
+  const phones = STATE.members.map(m => m._phone).filter(Boolean);
+  if (!phones.length) return alert("אין מספרים");
+  const progressEl = document.getElementById("enrich-progress");
+  progressEl.style.display = "block";
+  progressEl.innerHTML = `
+    <div style="font-size:12px;color:var(--dim);margin-bottom:6px">✅ בודק תקינות... <span id="val-text">0/${phones.length}</span></div>
+    <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden"><div id="val-fill" style="height:100%;width:0%;background:linear-gradient(90deg,var(--green),var(--cyan));transition:width 0.3s"></div></div>
+  `;
+  const r = await fetch("/api/check-validity", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionKey: STATE.sessionKey, phones }),
+  });
+  const { id } = await r.json();
+  const interval = setInterval(async () => {
+    const j = await (await fetch(`/api/check-validity-status/${id}`)).json();
+    const pct = Math.floor((j.done / j.total) * 100);
+    document.getElementById("val-fill").style.width = pct + "%";
+    document.getElementById("val-text").textContent = `${j.done}/${j.total} · ✓${j.active} ✗${j.inactive}`;
+    const map = new Map(j.results.map(r => [r.phone, r.exists]));
+    STATE.members = STATE.members.map(m => ({ ...m, active: map.has(m._phone) ? map.get(m._phone) : m.active }));
+    renderMembersTable();
+    if (j.status === "done") {
+      clearInterval(interval);
+      progressEl.innerHTML = `<div class="success">✅ בדיקה הושלמה · ${j.active} פעילים · ${j.inactive} לא פעילים · ${j.errors} שגיאות</div>`;
+      setTimeout(() => { progressEl.style.display = "none"; }, 4000);
+    }
+  }, 1500);
+}
+
+// ========== LOCAL CONTACTS / NAME OVERRIDES ==========
+async function autoLabelMembers() {
+  const pattern = prompt("תבנית לתיוג (לדוגמה: 'SUN-TRIBE #{i}' או 'Member-{phone}'):", `${STATE.selectedGroupName} · חבר-{i}`);
+  if (!pattern) return;
+  const phones = STATE.members.map(m => m._phone).filter(Boolean);
+  const r = await fetch("/api/local-contacts/auto-label", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phones, pattern }),
+  });
+  const data = await r.json();
+  flash(`✅ תויגו ${data.added} חברים`);
+  // Re-enrich to pick up local names
+  enrichMembers();
+}
+
+async function importContactsCSV() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".csv,.txt";
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const txt = await file.text();
+    // Expect: phone,name OR name,phone
+    const contacts = txt.split(/\n+/).map(line => {
+      const parts = line.split(",").map(s => s.trim().replace(/^"|"$/g, ""));
+      if (parts.length < 2) return null;
+      // Detect which column is phone
+      const isPhone1 = /^\+?\d[\d\s\-]{7,}$/.test(parts[0]);
+      return isPhone1 ? { phone: parts[0], name: parts[1] } : { phone: parts[1], name: parts[0] };
+    }).filter(Boolean);
+    const r = await fetch("/api/local-contacts/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contacts }),
+    });
+    const data = await r.json();
+    flash(`✅ יובאו ${data.added} שמות (סה"כ: ${data.total})`);
+    enrichMembers();
+  };
+  input.click();
+}
+
+async function editMemberName(phone) {
+  const current = STATE.members.find(m => m._phone === phone)?.name || "";
+  const newName = prompt("שם ל-" + phone + ":", current);
+  if (newName === null) return;
+  await fetch("/api/local-contacts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, name: newName || null }),
+  });
+  const m = STATE.members.find(m => m._phone === phone);
+  if (m) { m.name = newName; m.local_name = newName; m.source = "local"; }
+  renderMembersTable();
+}
+
+// ========== GROUP ACTIONS ==========
+function showGroupActions() {
+  const p = document.getElementById("group-actions-panel");
+  p.style.display = p.style.display === "none" ? "block" : "none";
+}
+
+async function getInviteLink() {
+  const r = await (await fetch(`/api/groups/${encodeURIComponent(STATE.selectedGroup)}/invite-link?sessionKey=${encodeURIComponent(STATE.sessionKey||"")}`)).json();
+  const link = r.data?.data?.inviteLink || r.data?.inviteLink || r.data?.url;
+  const el = document.getElementById("group-action-result");
+  if (link) el.innerHTML = `<div class="success">🔗 <a href="${esc(link)}" target="_blank" style="color:var(--green)">${esc(link)}</a></div>`;
+  else el.innerHTML = `<div class="error">${esc(JSON.stringify(r).slice(0,200))}</div>`;
+}
+
+async function resetInviteLink() {
+  if (!confirm("לאפס את לינק ההזמנה? הלינק הישן יפסיק לעבוד")) return;
+  const r = await fetch(`/api/groups/${encodeURIComponent(STATE.selectedGroup)}/invite-link/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionKey: STATE.sessionKey }),
+  });
+  const d = await r.json();
+  const el = document.getElementById("group-action-result");
+  el.innerHTML = d.ok ? `<div class="success">✅ הלינק אופס</div>` : `<div class="error">${esc(d.error||"שגיאה")}</div>`;
+}
+
+async function leaveGroup() {
+  if (!confirm(`לעזוב את "${STATE.selectedGroupName}"? אי אפשר לחזור בלי הזמנה`)) return;
+  const r = await fetch(`/api/groups/${encodeURIComponent(STATE.selectedGroup)}/leave`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionKey: STATE.sessionKey }),
+  });
+  const d = await r.json();
+  const el = document.getElementById("group-action-result");
+  if (d.ok) {
+    el.innerHTML = `<div class="success">✅ עזבת את הקבוצה</div>`;
+    setTimeout(() => { STATE.selectedGroup = null; switchTab("groups"); loadGroups(); }, 1500);
+  } else el.innerHTML = `<div class="error">${esc(d.error||JSON.stringify(d))}</div>`;
+}
+
+async function saveCurrentGroup() {
+  if (!STATE.members.length) return alert("אין חברים לשמור");
+  // Use smart save — merges delta, dedup by phone
+  const r = await fetch("/api/save-group-delta", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      groupId: STATE.selectedGroup,
+      groupName: STATE.selectedGroupName,
+      members: STATE.members,
+      metadata: { savedAt: new Date().toISOString() },
+    }),
+  });
+  const data = await r.json();
+  if (data.ok) {
+    if (data.new_added > 0 && data.previous_count > 0) {
+      flash(`✅ נוספו ${data.new_added} חדשים (סה"כ ${data.total}, היו ${data.previous_count})`);
+    } else if (data.new_added > 0) {
+      flash(`✅ נשמרו ${data.new_added} חברים`);
+    } else {
+      flash(`ℹ️ אין חדשים — הכל כבר היה שמור (${data.total})`);
+    }
+  } else alert("שגיאה: " + data.error);
+}
+
+// ============== INSTAGRAM TABS ==============
+function renderIgConnect() {
+  const authMethods = [
+    { id: "token", emoji: "🔑", name: "API Token", desc: "חיבור דרך מפתח API רשמי. יציב, מאובטח, ללא סיכון לחשבון.", recommended: true },
+    { id: "userpass", emoji: "👤", name: "Username + Password", desc: "לוגין ישיר עם שם המשתמש והסיסמה של החשבון. מהיר להקמה אך סיכון חסימה מ-Instagram.", warning: true },
+  ];
+  const tokenEngines = [
+    { id: "apify", emoji: "⚡", name: "Apify", desc: "Scraper API. עוקבים/פוסטים/סקרייפינג ציבורי.", cost: "~$0.50-2 לאלף records", recommended: true },
+    { id: "graph", emoji: "🏢", name: "Meta Graph API", desc: "רשמי ויציב. דורש Meta Business Account + אישור.", cost: "חינם עד 200/שעה" },
+  ];
+  return `
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <div style="width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--ig1),var(--ig3),var(--ig5));display:flex;align-items:center;justify-content:center;font-size:20px">🔗</div>
+        <div>
+          <h2 style="margin:0">חיבור חשבון Instagram</h2>
+          <div style="font-size:12px;color:var(--dim)">בחר שיטת אימות → הזן פרטים → שמור</div>
+        </div>
+      </div>
+      <div id="ig-status" style="margin:14px 0"></div>
+
+      <div style="font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin:18px 0 10px">1. בחר שיטת אימות</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        ${authMethods.map((m) => `
+          <label class="ig-engine-card" onclick="selectIgAuth('${m.id}')">
+            <input type="radio" name="ig-auth" value="${m.id}" ${m.recommended ? 'checked' : ''} style="display:none" />
+            <div class="ig-engine-inner">
+              <div style="font-size:30px;flex-shrink:0">${m.emoji}</div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+                  <span style="font-weight:800;font-size:15px">${m.name}</span>
+                  ${m.recommended ? '<span style="font-size:10px;background:linear-gradient(135deg,var(--ig1),var(--ig3));color:white;padding:2px 8px;border-radius:10px;font-weight:700">מומלץ</span>' : ''}
+                  ${m.warning ? '<span style="font-size:10px;background:rgba(239,68,68,0.2);color:#fca5a5;padding:2px 8px;border-radius:10px;font-weight:700">⚠️ סיכון חסימה</span>' : ''}
+                </div>
+                <div style="font-size:12px;color:var(--dim);line-height:1.5">${m.desc}</div>
+              </div>
+              <div class="ig-engine-check">✓</div>
+            </div>
+          </label>
+        `).join("")}
+      </div>
+
+      <div id="ig-auth-token" style="margin-top:22px">
+        <div style="font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:10px">2. בחר ספק API</div>
+        <div style="display:grid;grid-template-columns:1fr;gap:10px">
+          ${tokenEngines.map((e) => `
+            <label class="ig-engine-card" onclick="selectIgEngine('${e.id}')">
+              <input type="radio" name="ig-engine" value="${e.id}" ${e.recommended ? 'checked' : ''} style="display:none" />
+              <div class="ig-engine-inner">
+                <div style="font-size:26px;flex-shrink:0">${e.emoji}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+                    <span style="font-weight:800;font-size:15px">${e.name}</span>
+                    ${e.recommended ? '<span style="font-size:10px;background:linear-gradient(135deg,var(--ig1),var(--ig3));color:white;padding:2px 8px;border-radius:10px;font-weight:700">מומלץ</span>' : ''}
+                  </div>
+                  <div style="font-size:12px;color:var(--dim);line-height:1.5">${e.desc}</div>
+                  <div style="font-size:11px;color:var(--cyan);margin-top:6px;font-weight:600">💰 ${e.cost}</div>
+                </div>
+                <div class="ig-engine-check">✓</div>
+              </div>
+            </label>
+          `).join("")}
+        </div>
+        <div style="font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin:22px 0 10px">3. הזן API Token</div>
+        <input id="ig-token" type="password" placeholder="הדבק API token" style="margin-bottom:6px" />
+        <div style="font-size:11px;color:var(--mute);margin-bottom:14px" id="ig-token-hint">בחר ספק למעלה לראות איפה להשיג את ה-token</div>
+      </div>
+
+      <div id="ig-auth-userpass" style="margin-top:22px;display:none">
+        <div style="font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:10px">2. הזן פרטי חשבון Instagram</div>
+        <label>Username</label>
+        <input id="ig-username" type="text" placeholder="@username" style="margin-bottom:10px" dir="ltr" />
+        <label>Password</label>
+        <input id="ig-password" type="password" placeholder="סיסמת Instagram" style="margin-bottom:10px" dir="ltr" />
+        <label>2FA Code (אם יש)</label>
+        <input id="ig-2fa" type="text" placeholder="6 ספרות - רק אם הוגדר אימות דו-שלבי" style="margin-bottom:10px" dir="ltr" />
+        <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);padding:10px 14px;border-radius:8px;margin:10px 0;font-size:12px;color:#fca5a5">
+          ⚠️ <strong>אזהרה:</strong> Instagram עלול לחסום חשבונות שמתחברים דרך כלים חיצוניים. מומלץ להשתמש בחשבון משני ולא הראשי.
+        </div>
+      </div>
+
+      <button class="btn-green" onclick="saveIgConfig()" style="width:100%;padding:14px;font-size:15px;background:linear-gradient(135deg,var(--ig1),var(--ig3),var(--ig5));color:white;margin-top:14px">💾 שמור ובדוק חיבור</button>
+    </div>
+  `;
+}
+
+function selectIgAuth(id) {
+  document.querySelectorAll("input[name='ig-auth']").forEach(el => el.checked = el.value === id);
+  document.querySelectorAll(".ig-engine-card").forEach(el => {
+    const inp = el.querySelector("input");
+    if (inp && inp.name === "ig-auth") el.classList.toggle("selected", inp.checked);
+  });
+  document.getElementById("ig-auth-token").style.display = id === "token" ? "block" : "none";
+  document.getElementById("ig-auth-userpass").style.display = id === "userpass" ? "block" : "none";
+}
+
+function selectIgEngine(id) {
+  document.querySelectorAll("input[name='ig-engine']").forEach(el => el.checked = el.value === id);
+  document.querySelectorAll(".ig-engine-card").forEach(el => {
+    const inp = el.querySelector("input");
+    if (inp && inp.name === "ig-engine") el.classList.toggle("selected", inp.checked);
+  });
+  const hints = {
+    apify: "🔑 apify.com → Settings → Integrations → API tokens → Copy",
+    graph: "🔑 developers.facebook.com → App Dashboard → Instagram Basic Display → Access Token",
+  };
+  const hint = document.getElementById("ig-token-hint");
+  if (hint) hint.textContent = hints[id] || "";
+}
+
+function renderIgFollowers() {
+  return `
+    <div class="card">
+      <h2>👥 עוקבים / נעקבים</h2>
+      <label>Username של החשבון (או Instagram URL)</label>
+      <input id="ig-target-user" placeholder="@username או https://instagram.com/username" />
+      <div class="actions-row">
+        <button class="btn-green" onclick="fetchIgFollowers('followers')">⬇ משוך עוקבים</button>
+        <button class="btn-green" onclick="fetchIgFollowers('following')">⬇ משוך נעקבים</button>
+        <button class="btn-ghost" onclick="exportIgFollowers()">📊 ייצוא Excel</button>
+      </div>
+      <div id="ig-followers-list"><div class="empty">הזן username ולחץ משוך</div></div>
+    </div>
+  `;
+}
+
+function renderIgScrape() {
+  return `
+    <div class="card">
+      <h2>🔍 סקרייפינג פרופיל ציבורי</h2>
+      <label>Instagram URL (פרופיל / פוסט / Reel)</label>
+      <input id="ig-scrape-url" placeholder="https://instagram.com/username או .../p/CxYz..." />
+      <div class="actions-row">
+        <button class="btn-green" onclick="scrapeIg()">🔍 משוך נתונים</button>
+      </div>
+      <div id="ig-scrape-result"></div>
+    </div>
+  `;
+}
+
+function renderIgDm() {
+  const nums = [...STATE.igSelectedFollowers];
+  return `
+    <div class="card">
+      <h2>✉️ שליחת DMs</h2>
+      <div class="selected-count">${nums.length ? `${nums.length} עוקבים נבחרו` : 'בחר עוקבים מהטאב "עוקבים" או הקלד רשימה'}</div>
+      <label>נמענים (username בכל שורה)</label>
+      <textarea id="ig-dm-users" placeholder="user1&#10;user2">${nums.join("\n")}</textarea>
+      <label>הודעה</label>
+      <textarea id="ig-dm-text" placeholder="היי! ראיתי את הפרופיל שלך..."></textarea>
+      <label>השהייה בין הודעות (שניות — מומלץ 30+ למניעת חסימה)</label>
+      <input id="ig-dm-delay" type="number" value="45" min="15" />
+      <button class="btn-green" onclick="sendIgBroadcast()" style="width:100%;padding:14px;font-size:15px;margin-top:8px">📤 שלח DMs</button>
+      <div id="ig-dm-result"></div>
+    </div>
+  `;
+}
+
+function renderIgContent() {
+  return `
+    <div class="card">
+      <h2>📸 ניהול תוכן</h2>
+      <div class="empty">Schedule posts, view analytics — דורש Meta Graph API. לחץ "חיבור" ובחר Graph API.</div>
+    </div>
+  `;
+}
+
+function renderIgAgent() {
+  return `
+    <div class="card">
+      <h2>🤖 AI Agent</h2>
+      <p style="color:var(--dim);margin-bottom:14px">Agent שמפקח על אינטראקציות (DM חדש, תגובה), מחליט איך להגיב לפי כללים + LLM, ועונה אוטומטית.</p>
+      <label>מטרת ה-Agent</label>
+      <textarea id="ig-agent-goal" placeholder="לדוגמה: ענה על שאלות על המוצר שלי (eng-tours), סנן ספאם, העבר לידים לווטסאפ"></textarea>
+      <label>כללים</label>
+      <textarea id="ig-agent-rules" placeholder="1. תמיד ענה בעברית&#10;2. אם השאלה על מחיר — תן לינק&#10;3. אם מעניין בהזמנה — שלח לינק להזמנה"></textarea>
+      <button class="btn-green" onclick="startIgAgent()">🚀 הפעל Agent</button>
+      <div id="ig-agent-status" style="margin-top:14px"></div>
+    </div>
+  `;
+}
+
+// ============== INSTAGRAM ACTIONS (stubbed — need API key) ==============
+async function saveIgConfig() {
+  const authType = document.querySelector('input[name="ig-auth"]:checked')?.value;
+  const el = document.getElementById("ig-status");
+  let payload;
+  if (authType === "token") {
+    const engine = document.querySelector('input[name="ig-engine"]:checked')?.value;
+    const token = document.getElementById("ig-token").value.trim();
+    if (!engine || !token) { alert("בחר ספק + הזן token"); return; }
+    payload = { authType: "token", engine, token };
+  } else if (authType === "userpass") {
+    const username = document.getElementById("ig-username").value.trim().replace(/^@/, "");
+    const password = document.getElementById("ig-password").value.trim();
+    const twoFa = document.getElementById("ig-2fa").value.trim();
+    if (!username || !password) { alert("הזן username + password"); return; }
+    payload = { authType: "userpass", engine: "instagrapi", username, password, twoFa };
+  } else { alert("בחר שיטת אימות"); return; }
+
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>בודק חיבור...</div>';
+  try {
+    const r = await fetch("/api/ig/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (data.ok) el.innerHTML = `<div class="success">✅ מחובר: ${data.account || "OK"}</div>`;
+    else el.innerHTML = `<div class="error">${data.error || "חיבור נכשל"}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function fetchIgFollowers(type) {
+  const target = document.getElementById("ig-target-user").value.trim();
+  if (!target) return alert("הזן username");
+  const el = document.getElementById("ig-followers-list");
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>מושך...</div>';
+  try {
+    const r = await fetch(`/api/ig/followers?user=${encodeURIComponent(target)}&type=${type}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error);
+    STATE.igFollowers = data.followers || [];
+    renderIgFollowersTable();
+  } catch (e) {
+    el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+function renderIgFollowersTable() {
+  const el = document.getElementById("ig-followers-list");
+  if (!el) return;
+  if (!STATE.igFollowers.length) { el.innerHTML = '<div class="empty">לא נמצאו עוקבים</div>'; return; }
+  el.innerHTML = `
+    <table>
+      <thead><tr><th>☑</th><th>#</th><th></th><th>Username</th><th>שם מלא</th><th>Bio</th></tr></thead>
+      <tbody>${STATE.igFollowers.map((f, i) => `
+        <tr>
+          <td><input type="checkbox" onchange="toggleIgFollower('${esc(f.username)}',this.checked)" /></td>
+          <td>${i+1}</td>
+          <td>${f.profile_pic_url ? `<img class="avatar" src="${esc(f.profile_pic_url)}" onerror="this.style.display='none'" />` : '<div class="avatar"></div>'}</td>
+          <td dir="ltr">@${esc(f.username)}</td>
+          <td>${esc(f.full_name || "")}</td>
+          <td style="font-size:11px;color:var(--dim)">${esc((f.biography||"").slice(0,50))}</td>
+        </tr>
+      `).join("")}</tbody>
+    </table>
+    <div style="margin-top:10px;color:var(--dim);font-size:13px">סה"כ: ${STATE.igFollowers.length} · נבחרו: <span id="ig-sel-count">${STATE.igSelectedFollowers.size}</span></div>
+  `;
+}
+
+function toggleIgFollower(u, c) {
+  if (c) STATE.igSelectedFollowers.add(u); else STATE.igSelectedFollowers.delete(u);
+  const el = document.getElementById("ig-sel-count"); if (el) el.textContent = STATE.igSelectedFollowers.size;
+}
+
+async function exportIgFollowers() {
+  if (!STATE.igFollowers.length) return alert("אין נתונים");
+  const r = await fetch("/api/ig/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ followers: STATE.igFollowers }),
+  });
+  const data = await r.json();
+  if (data.url) { const a = document.createElement("a"); a.href = data.url; a.download = data.filename; a.click(); flash(`✅ ${data.rows} שורות`); }
+}
+
+async function scrapeIg() {
+  const url = document.getElementById("ig-scrape-url").value.trim();
+  if (!url) return alert("הזן URL");
+  const el = document.getElementById("ig-scrape-result");
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>מושך...</div>';
+  try {
+    const r = await fetch(`/api/ig/scrape?url=${encodeURIComponent(url)}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error);
+    el.innerHTML = `<pre style="background:var(--bg3);padding:14px;border-radius:8px;font-size:11px;max-height:400px;overflow:auto;direction:ltr;text-align:left;color:#a5f3fc">${esc(JSON.stringify(data, null, 2))}</pre>`;
+  } catch (e) {
+    el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function sendIgBroadcast() {
+  const users = document.getElementById("ig-dm-users").value.trim().split(/\n+/).filter(Boolean);
+  const text = document.getElementById("ig-dm-text").value.trim();
+  const delaySec = parseInt(document.getElementById("ig-dm-delay").value) || 45;
+  if (!users.length || !text) return alert("נמענים + הודעה נדרשים");
+  const el = document.getElementById("ig-dm-result");
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>שולח...</div>';
+  try {
+    const r = await fetch("/api/ig/dm-broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ users, text, delayMs: delaySec * 1000 }),
+    });
+    const data = await r.json();
+    el.innerHTML = `<div class="success">✅ נשלחו: ${data.sent}/${data.total}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function startIgAgent() {
+  const goal = document.getElementById("ig-agent-goal").value.trim();
+  const rules = document.getElementById("ig-agent-rules").value.trim();
+  if (!goal) return alert("הזן מטרה");
+  const r = await fetch("/api/ig/agent/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ goal, rules }),
+  });
+  const data = await r.json();
+  document.getElementById("ig-agent-status").innerHTML = data.ok
+    ? `<div class="success">✅ Agent רץ. ID: ${data.agent_id}</div>`
+    : `<div class="error">${data.error}</div>`;
+}
+
+// ========== CONNECT TAB ==========
+function renderConnect() {
+  return `
+    <div class="card">
+      <h2>🔗 חשבונות WhatsApp מחוברים</h2>
+      <div class="actions-row">
+        <button class="btn-green" onclick="loadSessions()">🔄 רענן</button>
+      </div>
+      <div id="sessions-list"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+    </div>
+  `;
+}
+
+async function loadSessions() {
+  const el = document.getElementById("sessions-list");
+  if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div>טוען...</div>';
+  try {
+    const r = await (await fetch("/api/sessions")).json();
+    STATE.sessions = r.sessions || [];
+    const el2 = document.getElementById("sessions-list");
+    if (!el2) return;
+    if (!STATE.sessions.length) { el2.innerHTML = '<div class="empty">אין חשבונות. צור חדש או הוסף API key ב-.env</div>'; return; }
+    el2.innerHTML = STATE.sessions.map(s => {
+      const connected = (s.status||"").toLowerCase() === "connected" || (s.status||"").toLowerCase() === "ready";
+      return `
+        <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg3);border-radius:10px;margin-bottom:8px;border:1px solid ${connected?'var(--green)':'var(--border)'}">
+          <div class="dot ${connected?'on':'off'}"></div>
+          <div style="flex:1">
+            <div style="font-weight:700">${esc(s.name||"Session")} ${s.phone_number?'('+s.phone_number+')':''}</div>
+            <div style="font-size:12px;color:var(--dim)">ID: ${s.id} · Status: ${s.status||'—'}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            ${connected
+              ? `<button class="btn-green" onclick="selectSession(${JSON.stringify(s.id)})">📋 טען קבוצות</button>
+                 <button class="btn-ghost" onclick="disconnectSession(${JSON.stringify(s.id)})">נתק</button>`
+              : `<button class="btn-green" onclick="connectSession(${JSON.stringify(s.id)})">חבר (QR)</button>`
+            }
+          </div>
+        </div>
+      `;
+    }).join("");
+  } catch (e) {
+    const el3 = document.getElementById("sessions-list");
+    if (el3) el3.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function connectSession(id) {
+  const el = document.getElementById("sessions-list");
+  el.innerHTML += `<div id="qr-area" class="qr-wrap"><div class="loading"><div class="spinner"></div>מייצר QR...</div></div>`;
+  const r = await (await fetch(`/api/sessions/${id}/connect`, { method: "POST" })).json();
+  const qrData = r.data?.qrCode || r.data?.qr || r.data?.data?.qrCode;
+  const qrArea = document.getElementById("qr-area");
+  if (!qrData) {
+    qrArea.innerHTML = `<div class="error">לא התקבל QR. סטטוס: ${r.data?.status || JSON.stringify(r).slice(0,200)}</div>`;
+    return;
+  }
+  if (qrData.startsWith("data:image")) {
+    qrArea.innerHTML = `<img src="${qrData}" style="max-width:280px;border-radius:12px;background:white;padding:16px" /><p style="margin-top:10px;color:var(--dim)">📱 סרוק עם WhatsApp</p>`;
+  } else {
+    qrArea.innerHTML = `<div id="qr-div" style="display:inline-block;background:white;padding:16px;border-radius:12px"></div><p style="margin-top:10px;color:var(--dim)">📱 סרוק עם WhatsApp</p><button class="btn-ghost" style="margin-top:10px" onclick="connectSession('${id}')">🔄 QR חדש</button>`;
+    try {
+      new QRCode(document.getElementById("qr-div"), {
+        text: qrData,
+        width: 260,
+        height: 260,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+      });
+    } catch (e) {
+      qrArea.innerHTML = `<div class="error">QR render failed: ${e.message}</div>`;
+    }
+  }
+  // Poll for connection
+  let polls = 0;
+  const pollInterval = setInterval(async () => {
+    polls++;
+    if (polls > 30) { clearInterval(pollInterval); return; }
+    try {
+      const s = await (await fetch(`/api/sessions/${id}/status`)).json();
+      const status = (s.data?.status || s.status || "").toLowerCase();
+      if (status === "connected" || status === "ready") {
+        clearInterval(pollInterval);
+        qrArea.innerHTML = `<div class="success">✅ מחובר! טוען קבוצות...</div>`;
+        setTimeout(() => { loadSessions(); selectSession(id); }, 1500);
+      }
+    } catch {}
+  }, 3000);
+}
+
+async function disconnectSession(id) {
+  await fetch(`/api/sessions/${id}/disconnect`, { method: "POST" });
+  loadSessions();
+}
+
+async function selectSession(id) {
+  STATE.activeSession = id;
+  switchTab("groups");
+  loadGroups();
+}
+
+// ========== GROUPS TAB ==========
+function renderGroups() {
+  if (!STATE.activeSession) return '<div class="empty">בחר חשבון מחובר קודם (טאב חיבור)</div>';
+  return `
+    <div class="card">
+      <h2>👥 קבוצות (Session: ${STATE.activeSession})</h2>
+      <div class="actions-row">
+        <button class="btn-green" onclick="loadGroups()">🔄 רענן קבוצות</button>
+      </div>
+      <div id="groups-grid"><div class="loading"><div class="spinner"></div>טוען קבוצות...</div></div>
+    </div>
+  `;
+}
+
+async function loadGroups() {
+  const el = document.getElementById("groups-grid");
+  if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div>טוען קבוצות...</div>';
+  try {
+    const r = await (await fetch(`/api/sessions/${STATE.activeSession}/groups`)).json();
+    STATE.groups = r.groups || [];
+    STATE.sessionKey = r.sessionKey || null;
+    const el2 = document.getElementById("groups-grid");
+    if (!el2) return;
+    if (!STATE.groups.length) { el2.innerHTML = '<div class="empty">לא נמצאו קבוצות</div>'; return; }
+    el2.className = "group-grid";
+    el2.innerHTML = STATE.groups.map(g => {
+      const gid = g.id || g.jid || g.groupId;
+      const name = g.subject || g.name || gid || "—";
+      const img = g.imgUrl || g.picture;
+      const size = g.size || g.participants?.length;
+
+      let deltaBadge = "";
+      if (g.saved && size && size > 0) {
+        const delta = size - g.savedMemberCount;
+        if (delta > 0) deltaBadge = `<span style="background:rgba(245,158,11,0.2);color:#fbbf24;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700" title="נוספו חדשים">🆕 +${delta}</span>`;
+        else if (delta < 0) deltaBadge = `<span style="background:rgba(239,68,68,0.15);color:#fca5a5;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:600">−${Math.abs(delta)}</span>`;
+      }
+      const savedBadge = g.saved ? `<span style="background:rgba(34,211,238,0.15);color:var(--cyan);padding:3px 9px;border-radius:10px;font-size:11px;font-weight:600">💾 נשמר</span>` : "";
+
+      return `
+        <div class="group-card" onclick='selectGroup(${JSON.stringify(gid)})'>
+          <div style="display:flex;align-items:center;gap:12px">
+            ${img ? `<img src="${esc(img)}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0" />` : '<div style="width:48px;height:48px;border-radius:50%;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">👥</div>'}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:15px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
+                ${size ? `<span style="color:var(--green);font-weight:700;font-size:13px">${size} חברים</span>` : '<span style="color:var(--mute);font-size:12px">— חברים</span>'}
+                ${savedBadge}
+                ${deltaBadge}
+              </div>
+            </div>
+          </div>
+          ${(g.desc || g.description) ? `<div style="font-size:11px;color:var(--mute);margin-top:8px;line-height:1.4;max-height:30px;overflow:hidden">${esc((g.desc||g.description).slice(0,80))}</div>` : ""}
+        </div>
+      `;
+    }).join("");
+  } catch (e) {
+    const el3 = document.getElementById("groups-grid");
+    if (el3) el3.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function selectGroup(groupId) {
+  STATE.selectedGroup = groupId;
+  const g = STATE.groups.find(g => (g.id||g.jid||g.groupId) === groupId);
+  STATE.selectedGroupName = g?.subject || g?.name || groupId;
+  STATE.selectedGroupPhoto = g?.imgUrl || null;
+  switchTab("members");
+  setTimeout(async () => {
+    if (STATE.selectedGroupPhoto) {
+      const av = document.getElementById("group-avatar");
+      if (av) av.innerHTML = `<img src="${STATE.selectedGroupPhoto}" style="width:100%;height:100%;border-radius:50%;object-fit:cover" />`;
+    }
+  }, 100);
+  loadMembers();
+}
+
+// ========== MEMBERS TAB ==========
+function renderMembers() {
+  if (!STATE.selectedGroup) return '<div class="empty">בחר קבוצה קודם (טאב קבוצות)</div>';
+  return `
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="background:linear-gradient(135deg,var(--green),var(--green2));padding:20px 24px;color:white">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div id="group-avatar" style="width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0">👥</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:22px;font-weight:800;margin-bottom:4px">${esc(STATE.selectedGroupName)}</div>
+            <div id="group-meta" style="font-size:13px;opacity:0.9">טוען...</div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:18px 20px">
+        <div class="actions-row">
+          <button class="btn-green" onclick="loadMembers()">🔄 רענן</button>
+          <button class="btn-green" onclick="enrichMembers()">🎨 העשר</button>
+          <button class="btn-green" onclick="saveCurrentGroup()">💾 שמור</button>
+          <button class="btn-green" onclick="exportExcel()">📊 Excel</button>
+          <button class="btn-green" onclick="checkValidity()">✅ בדוק תקינות</button>
+          <button class="btn-ghost" onclick="autoLabelMembers()">🏷️ תיוג אוטומטי</button>
+          <button class="btn-ghost" onclick="importContactsCSV()">📥 ייבוא שמות (CSV)</button>
+          <button class="btn-ghost" onclick="selectAllMembers()">✓ בחר הכל</button>
+          <button class="btn-ghost" onclick="deselectAllMembers()">✗ בטל</button>
+          <button class="btn-green" onclick="goToSendSelected()">✉️ שלח לנבחרים (<span id="sel-count">0</span>)</button>
+          <button class="btn-ghost" onclick="showGroupActions()">⚙️ פעולות קבוצה</button>
+        </div>
+        <div id="group-actions-panel" style="display:none;margin:10px 0;padding:14px;background:var(--bg3);border-radius:10px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-ghost" onclick="getInviteLink()">🔗 קבל לינק הזמנה</button>
+            <button class="btn-ghost" onclick="resetInviteLink()">🔄 איפוס לינק</button>
+            <button class="btn-red" onclick="leaveGroup()">🚪 עזוב קבוצה</button>
+          </div>
+          <div id="group-action-result" style="margin-top:10px"></div>
+        </div>
+        <div id="enrich-progress" style="display:none;margin:10px 0;padding:12px;background:var(--bg3);border-radius:8px"></div>
+        <div id="members-table"><div class="loading"><div class="spinner"></div>טוען חברים...</div></div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadMembers() {
+  const el = document.getElementById("members-table");
+  if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div>טוען חברים...</div>';
+  try {
+    const sessionKey = STATE.sessionKey || "";
+    const params = sessionKey ? `?sessionKey=${encodeURIComponent(sessionKey)}` : "";
+    const r = await (await fetch(`/api/sessions/${STATE.activeSession}/groups/${encodeURIComponent(STATE.selectedGroup)}/participants${params}`)).json();
+    STATE.members = (r.participants || []).map(m => ({ ...m, _phone: (m.pn || m.jid || m.id || "").replace("@c.us","").replace("@s.whatsapp.net","") }));
+    STATE.selectedMembers = new Set();
+    renderMembersTable();
+    // Auto-start enrichment
+    setTimeout(enrichMembers, 200);
+  } catch (e) {
+    const el2 = document.getElementById("members-table");
+    if (el2) el2.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function enrichMembers() {
+  const phones = STATE.members.map(m => m._phone).filter(Boolean);
+  if (!phones.length) return;
+  const sessionKey = STATE.sessionKey || "";
+
+  // Insert progress bar
+  const progressEl = document.getElementById("enrich-progress");
+  if (progressEl) {
+    progressEl.style.display = "block";
+    progressEl.innerHTML = `
+      <div style="font-size:12px;color:var(--dim);margin-bottom:6px">🔄 מעשיר פרטים (תמונות + שמות)... <span id="enr-text">0/${phones.length}</span></div>
+      <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden"><div id="enr-fill" style="height:100%;width:0%;background:linear-gradient(90deg,var(--green),var(--cyan));transition:width 0.3s"></div></div>
+    `;
+  }
+
+  const r = await fetch("/api/enrich-members", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionKey, phones, groupName: STATE.selectedGroupName, autoLabel: false }),
+  });
+  const { id } = await r.json();
+
+  const interval = setInterval(async () => {
+    const j = await (await fetch(`/api/enrich-status/${id}`)).json();
+    const pct = Math.floor((j.done / j.total) * 100);
+    const fill = document.getElementById("enr-fill");
+    const txt = document.getElementById("enr-text");
+    if (fill) fill.style.width = pct + "%";
+    if (txt) txt.textContent = `${j.done}/${j.total}`;
+
+    // Merge results into members
+    const map = new Map(j.results.map(r => [r.phone, r]));
+    STATE.members = STATE.members.map(m => ({ ...m, ...(map.get(m._phone) || {}) }));
+    renderMembersTable();
+
+    if (j.status === "done") {
+      clearInterval(interval);
+      if (progressEl) {
+        progressEl.innerHTML = `<div class="success">✅ הועשרו ${j.done} חברים</div>`;
+        setTimeout(() => { progressEl.style.display = "none"; }, 3000);
+      }
+    }
+  }, 1500);
+}
+
+function renderMembersTable() {
+  const el = document.getElementById("members-table");
+  if (!el) return;
+  if (!STATE.members.length) { el.innerHTML = '<div class="empty">לא נמצאו חברים</div>'; return; }
+
+  // Update header meta
+  const metaEl = document.getElementById("group-meta");
+  const admins = STATE.members.filter(m => m.isAdmin || m.isSuperAdmin).length;
+  const enriched = STATE.members.filter(m => m.imgUrl || m.name).length;
+  if (metaEl) metaEl.textContent = `👥 ${STATE.members.length} חברים · 👑 ${admins} אדמינים · 🎨 ${enriched} מועשרים`;
+
+  el.innerHTML = `
+    <table>
+      <thead><tr>
+        <th style="width:30px">☑</th>
+        <th style="width:30px">#</th>
+        <th style="width:50px">תמונה</th>
+        <th>שם</th>
+        <th>טלפון</th>
+        <th style="width:60px">פעיל</th>
+        <th>סטטוס</th>
+        <th>תפקיד</th>
+      </tr></thead>
+      <tbody>${STATE.members.map((m, i) => {
+        const phone = m._phone || (m.pn || m.jid || m.id || "").replace("@c.us","").replace("@s.whatsapp.net","");
+        const name = m.verifiedName || m.name || m.notify || m.pushname || "—";
+        const photo = m.imgUrl || m.profilePicUrl || "";
+        const status = m.status || "";
+        const isAdmin = m.isSuperAdmin ? "superadmin" : (m.isAdmin || m.admin ? "admin" : "");
+        const checked = STATE.selectedMembers.has(phone);
+        return `<tr>
+          <td><input type="checkbox" ${checked?"checked":""} onchange="toggleMember('${phone}',this.checked)" /></td>
+          <td>${i+1}</td>
+          <td>${photo ? `<img class="avatar" src="${esc(photo)}" onerror="this.src='';this.style.background='var(--bg3)'" />` : '<div class="avatar" style="display:flex;align-items:center;justify-content:center;color:var(--dim)">👤</div>'}</td>
+          <td onclick="editMemberName('${phone}')" style="cursor:pointer" title="לחץ לעריכת שם">${esc(name)}${m.verifiedName ? ' <span style="color:var(--cyan);font-size:11px">✓</span>' : ''}${m.source === "local" ? ' <span style="color:var(--cyan);font-size:10px">🏷️</span>' : ''}${name === "—" ? ' <span style="color:var(--mute);font-size:10px">✏️</span>' : ''}</td>
+          <td dir="ltr" style="font-family:monospace;font-size:12px"><a href="https://wa.me/${phone}" target="_blank" style="color:var(--green);text-decoration:none">${phone}</a></td>
+          <td style="text-align:center">${m.active === true ? '<span style="color:var(--green);font-size:16px" title="פעיל בוואטסאפ">✓</span>' : m.active === false ? '<span style="color:var(--red);font-size:16px" title="לא קיים בוואטסאפ">✗</span>' : '<span style="color:var(--mute);font-size:11px">—</span>'}</td>
+          <td style="font-size:11px;color:var(--dim);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(status||"")}</td>
+          <td>${isAdmin === "superadmin" ? '<span style="color:#fbbf24;font-weight:700">👑 יוצר</span>' : isAdmin === "admin" ? '<span style="color:var(--green);font-weight:600">⭐ אדמין</span>' : '<span style="color:var(--mute);font-size:11px">חבר</span>'}</td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+  `;
+  updateSelCount();
+}
+
+function toggleMember(phone, checked) {
+  if (checked) STATE.selectedMembers.add(phone); else STATE.selectedMembers.delete(phone);
+  updateSelCount();
+}
+
+function selectAllMembers() {
+  STATE.members.forEach(m => {
+    const phone = (m.id||m.phone||"").replace("@c.us","").replace("@s.whatsapp.net","");
+    if (phone) STATE.selectedMembers.add(phone);
+  });
+  renderMembersTable();
+}
+
+function deselectAllMembers() { STATE.selectedMembers = new Set(); renderMembersTable(); }
+
+function updateSelCount() {
+  const el = document.getElementById("sel-count");
+  if (el) el.textContent = STATE.selectedMembers.size;
+}
+
+function goToSendSelected() {
+  if (!STATE.selectedMembers.size) return alert("בחר חברים קודם");
+  switchTab("send");
+}
+
+async function exportExcel() {
+  try {
+    const r = await fetch("/api/export-excel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupName: STATE.selectedGroupName, participants: STATE.members }),
+    });
+    const data = await r.json();
+    if (data.url) {
+      const a = document.createElement("a");
+      a.href = data.url;
+      a.download = data.filename;
+      a.click();
+      flash(`✅ יוצא ${data.rows} שורות ל-Excel`);
+    } else {
+      alert("Export error: " + (data.error || "unknown"));
+    }
+  } catch (e) {
+    alert("Export failed: " + e.message);
+  }
+}
+
+// ========== SEND TAB ==========
+function renderSend() {
+  const nums = [...STATE.selectedMembers];
+  return `
+    <div class="card">
+      <h2>✉️ שליחת הודעה</h2>
+      <div class="selected-count">${nums.length ? `${nums.length} נמענים נבחרו` : 'לא נבחרו נמענים — בחר מטאב חברים או הקלד מספרים'}</div>
+      <label>נמענים (מספר בכל שורה)</label>
+      <textarea id="send-numbers" placeholder="972501234567&#10;972509876543">${nums.join("\n")}</textarea>
+      <label>הודעה</label>
+      <textarea id="send-text" placeholder="שלום, ..."></textarea>
+      <label>השהייה בין הודעות (מילישניות)</label>
+      <input id="send-delay" type="number" value="3000" min="2000" />
+      <button class="btn-green" onclick="sendBroadcast()" style="width:100%;padding:14px;font-size:15px;margin-top:8px">📤 שלח לכולם</button>
+      <div id="send-result"></div>
+    </div>
+  `;
+}
+
+async function sendBroadcast() {
+  const numbers = document.getElementById("send-numbers").value.trim().split(/\n+/).map(n=>n.trim()).filter(Boolean);
+  const text = document.getElementById("send-text").value.trim();
+  const delayMs = parseInt(document.getElementById("send-delay").value) || 3000;
+  if (!numbers.length || !text) return alert("נמענים + הודעה נדרשים");
+
+  const el = document.getElementById("send-result");
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>שולח...</div>';
+
+  try {
+    const session = STATE.sessions.find(s => (s.status||"").toLowerCase() === "connected" || (s.status||"").toLowerCase() === "ready");
+    const r = await fetch("/api/broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ numbers, text, delayMs, sessionApiKey: session?.api_key }),
+    });
+    const data = await r.json();
+    el.innerHTML = `<div class="success">✅ נשלחו: ${data.sent}/${data.total} · נכשלו: ${data.failed}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+// ========== HEALTH ==========
+async function checkHealth() {
+  document.getElementById("health-text").textContent = "בודק...";
+  try {
+    const r = await (await fetch("/api/health")).json();
+    document.getElementById("health-dot").className = `dot ${r.online ? "on" : "off"}`;
+    document.getElementById("health-text").textContent = r.online ? `מחובר (${r.connected_sessions}/${r.total_sessions})` : r.error || "לא מחובר";
+  } catch (e) {
+    document.getElementById("health-dot").className = "dot off";
+    document.getElementById("health-text").textContent = "שגיאה";
+  }
+}
+
+// ========== UTILS ==========
+function esc(s) { return String(s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function flash(msg) {
+  const n = document.createElement("div");
+  n.textContent = msg;
+  n.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--green);color:white;padding:10px 20px;border-radius:8px;font-weight:600;font-size:13px;z-index:999";
+  document.body.appendChild(n);
+  setTimeout(() => n.remove(), 2000);
+}
+
+// ========== INIT ==========
+render();
+checkHealth();
+setTimeout(loadSessions, 500);
+</script>
+</body>
+</html>

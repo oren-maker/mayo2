@@ -1,0 +1,12 @@
+{
+  "name": "whatsapp-groups",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.22.1",
+    "exceljs": "^4.4.0"
+  }
+}

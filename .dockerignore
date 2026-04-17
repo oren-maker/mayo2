@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+saved-groups
+brand-logs
+exports
+prompt-details
+prompts.json
+local-contacts.json
+brands.json
+ig-config.json
+avatars
+*.md
