@@ -73,42 +73,13 @@ function parseCookies(header) {
   return out;
 }
 
-// Login rate-limit — 10 failed attempts per IP per 5 min (tighter window, more attempts)
-const LOGIN_ATTEMPTS = new Map(); // ip → { count, firstAt }
-const LOGIN_WINDOW_MS = 5 * 60 * 1000;
-const LOGIN_MAX_FAILS = 10;
-function loginRateLimit(req) {
-  const ip = (req.headers["x-forwarded-for"]?.split(",")[0].trim())
-    || req.headers["x-real-ip"]
-    || req.socket.remoteAddress
-    || "unknown";
-  const now = Date.now();
-  const e = LOGIN_ATTEMPTS.get(ip);
-  if (!e || (now - e.firstAt) > LOGIN_WINDOW_MS) return { ip, blocked: false };
-  return { ip, blocked: e.count >= LOGIN_MAX_FAILS, retryIn: LOGIN_WINDOW_MS - (now - e.firstAt) };
-}
-function recordLoginFail(ip) {
-  const now = Date.now();
-  const e = LOGIN_ATTEMPTS.get(ip);
-  if (!e || (now - e.firstAt) > LOGIN_WINDOW_MS) LOGIN_ATTEMPTS.set(ip, { count: 1, firstAt: now });
-  else e.count++;
-}
-function recordLoginSuccess(ip) { LOGIN_ATTEMPTS.delete(ip); }
-
 app.post("/api/login", express.urlencoded({ extended: true }), (req, res) => {
-  const { ip, blocked, retryIn } = loginRateLimit(req);
-  if (blocked) {
-    res.status(429);
-    return res.send(`<!doctype html><meta charset="UTF-8"><body style="font-family:system-ui;padding:40px;text-align:center;background:#0a0a12;color:#e8e8f0"><h2>יותר מדי ניסיונות כושלים</h2><p>נסה שוב בעוד ${Math.ceil(retryIn/60000)} דקות</p></body>`);
-  }
   const { user, pass } = req.body || {};
   if (user === AUTH_USER && pass === AUTH_PASS) {
-    recordLoginSuccess(ip);
     const cookie = `${COOKIE_NAME}=${signCookie(user)}; Max-Age=${COOKIE_MAX_AGE}; Path=/; SameSite=Lax; HttpOnly${req.secure || req.headers["x-forwarded-proto"] === "https" ? "; Secure" : ""}`;
     res.set("Set-Cookie", cookie);
     return res.redirect("/");
   }
-  recordLoginFail(ip);
   res.redirect("/login?err=1");
 });
 
