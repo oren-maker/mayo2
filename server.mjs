@@ -14,7 +14,32 @@ await fs.mkdir(DATA_DIR, { recursive: true }).catch(() => {});
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
+// Security headers — CSP limits XSS blast radius even if an esc() call is missed
+app.use((req, res, next) => {
+  res.set("X-Frame-Options", "DENY");
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  // UI uses inline styles/scripts heavily — allow self + inline, block everything else.
+  res.set("Content-Security-Policy",
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: https:; " +
+    "connect-src 'self'; " +
+    "frame-ancestors 'none'; " +
+    "base-uri 'self'; " +
+    "form-action 'self'"
+  );
+  next();
+});
+
 // ========== COOKIE AUTH (persistent login) ==========
+// In production (Vercel) env vars MUST be set — refuse to boot with defaults.
+const IS_PROD = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+if (IS_PROD && (!process.env.AUTH_PASS || !process.env.COOKIE_SECRET)) {
+  console.error("[fatal] AUTH_PASS and COOKIE_SECRET must be set in production");
+  throw new Error("missing auth env — refusing to serve with default credentials");
+}
 const AUTH_USER = process.env.AUTH_USER || "oren";
 const AUTH_PASS = process.env.AUTH_PASS || "WhatsApp2026";
 const COOKIE_SECRET = process.env.COOKIE_SECRET || (AUTH_USER + ":" + AUTH_PASS + ":mayo");
@@ -48,13 +73,39 @@ function parseCookies(header) {
   return out;
 }
 
+// Login rate-limit — 5 failed attempts per IP per 15 min
+const LOGIN_ATTEMPTS = new Map(); // ip → { count, firstAt }
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILS = 5;
+function loginRateLimit(req) {
+  const ip = (req.headers["x-forwarded-for"]?.split(",")[0].trim()) || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  const e = LOGIN_ATTEMPTS.get(ip);
+  if (!e || (now - e.firstAt) > LOGIN_WINDOW_MS) return { ip, blocked: false };
+  return { ip, blocked: e.count >= LOGIN_MAX_FAILS, retryIn: LOGIN_WINDOW_MS - (now - e.firstAt) };
+}
+function recordLoginFail(ip) {
+  const now = Date.now();
+  const e = LOGIN_ATTEMPTS.get(ip);
+  if (!e || (now - e.firstAt) > LOGIN_WINDOW_MS) LOGIN_ATTEMPTS.set(ip, { count: 1, firstAt: now });
+  else e.count++;
+}
+function recordLoginSuccess(ip) { LOGIN_ATTEMPTS.delete(ip); }
+
 app.post("/api/login", express.urlencoded({ extended: true }), (req, res) => {
+  const { ip, blocked, retryIn } = loginRateLimit(req);
+  if (blocked) {
+    res.status(429);
+    return res.send(`<!doctype html><meta charset="UTF-8"><body style="font-family:system-ui;padding:40px;text-align:center;background:#0a0a12;color:#e8e8f0"><h2>יותר מדי ניסיונות כושלים</h2><p>נסה שוב בעוד ${Math.ceil(retryIn/60000)} דקות</p></body>`);
+  }
   const { user, pass } = req.body || {};
   if (user === AUTH_USER && pass === AUTH_PASS) {
+    recordLoginSuccess(ip);
     const cookie = `${COOKIE_NAME}=${signCookie(user)}; Max-Age=${COOKIE_MAX_AGE}; Path=/; SameSite=Lax; HttpOnly${req.secure || req.headers["x-forwarded-proto"] === "https" ? "; Secure" : ""}`;
     res.set("Set-Cookie", cookie);
     return res.redirect("/");
   }
+  recordLoginFail(ip);
   res.redirect("/login?err=1");
 });
 
@@ -519,6 +570,7 @@ app.post("/api/save-group-delta", async (req, res) => {
     members: merged,
   };
   await writeJson(storageKey, payload);
+  invalidateSavedMap();
 
   // Per-group daily log — treats "left voluntarily" and "was removed" the same
   const newPhones = newMembers.map(m => m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "")).filter(Boolean);
@@ -892,13 +944,26 @@ async function appendBrandLog(brandId, entry) {
   await writeJson(key, log.slice(0, 500));
 }
 
-async function loadSavedGroupsMap() {
-  const keys = (await listKeys("saved-groups")).filter(k => k.endsWith(".json"));
-  const map = new Map();
-  for (const key of keys) {
-    const d = await readJson(key);
-    if (d) map.set(d.groupId, { ...d, file: key.replace(/^saved-groups\//, "") });
+// In-memory cache for the full saved-groups map, with TTL.
+// Biggest hot path — brand stats + dedup + members all call this.
+// Parallelize Blob reads (listKeys returns N keys; serial reads = N sequential round-trips).
+let _savedMapCache = null;
+let _savedMapCacheAt = 0;
+const SAVED_MAP_TTL = 5 * 60 * 1000; // 5 min
+function invalidateSavedMap() { _savedMapCache = null; _savedMapCacheAt = 0; }
+async function loadSavedGroupsMap(force = false) {
+  const now = Date.now();
+  if (!force && _savedMapCache && (now - _savedMapCacheAt) < SAVED_MAP_TTL) {
+    return _savedMapCache;
   }
+  const keys = (await listKeys("saved-groups")).filter(k => k.endsWith(".json"));
+  const entries = await Promise.all(keys.map(async key => {
+    const d = await readJson(key);
+    return d ? [d.groupId, { ...d, file: key.replace(/^saved-groups\//, "") }] : null;
+  }));
+  const map = new Map(entries.filter(Boolean));
+  _savedMapCache = map;
+  _savedMapCacheAt = now;
   return map;
 }
 
@@ -1086,20 +1151,25 @@ async function computeBrandStatsAndCache(b) {
   let latestSavedAt = null;
 
   const today = new Date().toISOString().slice(0, 10);
+  // Fetch all daily-log Blobs in parallel — was serial in the loop
+  const dailyLogs = await Promise.all(b.groupIds.map(async gid => {
+    try {
+      const safeId = gid.replace(/[^a-zA-Z0-9]/g, "_");
+      return [gid, (await readJson(`group-daily-log/${safeId}.json`)) || []];
+    } catch { return [gid, []]; }
+  }));
+  const dailyByGid = new Map(dailyLogs);
   for (const gid of b.groupIds) {
     const d = savedMap.get(gid);
     if (!d) { groupDetails.push({ groupId: gid, missing: true, iAmAdmin: adminMap.get(gid) || false }); continue; }
     if (!latestSavedAt || d.savedAt > latestSavedAt) latestSavedAt = d.savedAt;
     groupSizes.set(gid, d.memberCount || 0);
     // Today's delta from the per-group daily log
-    let todayJoined = 0, todayLeft = 0, daily7 = [];
-    try {
-      const safeId = gid.replace(/[^a-zA-Z0-9]/g, "_");
-      const daily = (await readJson(`group-daily-log/${safeId}.json`)) || [];
-      const todayEntry = daily.find(e => e.date === today);
-      if (todayEntry) { todayJoined = todayEntry.joined; todayLeft = todayEntry.left; }
-      daily7 = daily.slice(0, 7).map(e => ({ date: e.date, joined: e.joined, left: e.left }));
-    } catch {}
+    const daily = dailyByGid.get(gid) || [];
+    const todayEntry = daily.find(e => e.date === today);
+    const todayJoined = todayEntry?.joined || 0;
+    const todayLeft = todayEntry?.left || 0;
+    const daily7 = daily.slice(0, 7).map(e => ({ date: e.date, joined: e.joined, left: e.left }));
     groupDetails.push({
       groupId: gid,
       groupName: d.groupName,
@@ -1816,38 +1886,50 @@ app.post("/api/save-group", async (req, res) => {
     members,
   };
   await writeJson(`saved-groups/${safeId}.json`, payload);
+  invalidateSavedMap();
   res.json({ ok: true, file: `${safeId}.json`, rows: members.length });
 });
 
 app.get("/api/saved-groups", async (_, res) => {
   try {
     const files = (await listKeys("saved-groups")).filter(k => k.endsWith(".json"));
-    const groups = [];
-    for (const key of files) {
+    const results = await Promise.all(files.map(async key => {
       const data = await readJson(key);
-      if (data) groups.push({ file: key.replace(/^saved-groups\//, ""), groupId: data.groupId, groupName: data.groupName, memberCount: data.memberCount, savedAt: data.savedAt });
-    }
-    groups.sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+      if (!data) return null;
+      return { file: key.replace(/^saved-groups\//, ""), groupId: data.groupId, groupName: data.groupName, memberCount: data.memberCount, savedAt: data.savedAt };
+    }));
+    const groups = results.filter(Boolean).sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
     res.json({ groups });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
+// Whitelist filename to block path traversal (../../../etc/passwd etc.)
+const SAFE_FILE_RE = /^[a-zA-Z0-9_.-]+\.json$/;
+function safeFile(file) {
+  return typeof file === "string" && SAFE_FILE_RE.test(file) ? file : null;
+}
+
 app.get("/api/saved-groups/:file", async (req, res) => {
-  const data = await readJson(`saved-groups/${req.params.file}`);
+  const f = safeFile(req.params.file);
+  if (!f) return res.status(400).json({ error: "invalid filename" });
+  const data = await readJson(`saved-groups/${f}`);
   if (!data) return res.status(404).json({ error: "not found" });
   res.json(data);
 });
 
 // Delete is now ARCHIVE — moves to archived-groups/
 app.post("/api/saved-groups/:file/archive", async (req, res) => {
-  const src = `saved-groups/${req.params.file}`;
+  const f = safeFile(req.params.file);
+  if (!f) return res.status(400).json({ error: "invalid filename" });
+  const src = `saved-groups/${f}`;
   const data = await readJson(src);
   if (!data) return res.status(404).json({ error: "not found" });
   data.archivedAt = new Date().toISOString();
-  await writeJson(`archived-groups/${req.params.file}`, data);
+  await writeJson(`archived-groups/${f}`, data);
   await deleteKey(src);
+  invalidateSavedMap();
   // Remove from any brand
   await ensureBrands();
   let changed = false;
@@ -1863,31 +1945,34 @@ app.post("/api/saved-groups/:file/archive", async (req, res) => {
 });
 
 app.post("/api/archived-groups/:file/restore", async (req, res) => {
-  const src = `archived-groups/${req.params.file}`;
+  const f = safeFile(req.params.file);
+  if (!f) return res.status(400).json({ error: "invalid filename" });
+  const src = `archived-groups/${f}`;
   const data = await readJson(src);
   if (!data) return res.status(404).json({ error: "not found" });
   delete data.archivedAt;
-  await writeJson(`saved-groups/${req.params.file}`, data);
+  await writeJson(`saved-groups/${f}`, data);
   await deleteKey(src);
+  invalidateSavedMap();
   res.json({ ok: true });
 });
 
 app.get("/api/archived-groups", async (_, res) => {
   try {
     const files = (await listKeys("archived-groups")).filter(k => k.endsWith(".json"));
-    const groups = [];
-    for (const key of files) {
+    const results = await Promise.all(files.map(async key => {
       const data = await readJson(key);
-      if (data) groups.push({
+      if (!data) return null;
+      return {
         file: key.replace(/^archived-groups\//, ""),
         groupId: data.groupId,
         groupName: data.groupName,
         memberCount: data.memberCount,
         savedAt: data.savedAt,
         archivedAt: data.archivedAt,
-      });
-    }
-    groups.sort((a, b) => new Date(b.archivedAt) - new Date(a.archivedAt));
+      };
+    }));
+    const groups = results.filter(Boolean).sort((a, b) => new Date(b.archivedAt) - new Date(a.archivedAt));
     res.json({ groups });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
