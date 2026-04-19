@@ -507,61 +507,55 @@ app.get("/api/groups/:groupId/daily-log", async (req, res) => {
   res.json({ log });
 });
 
-app.post("/api/save-group-delta", async (req, res) => {
-  const { groupId, groupName, members, metadata } = req.body;
-  if (!groupId || !members) return res.status(400).json({ error: "groupId + members required" });
+// Core save-group-delta logic extracted so /refresh-all can call it directly
+async function persistGroupDelta(groupId, groupName, members, metadata) {
   const safeId = groupId.replace(/[^a-zA-Z0-9]/g, "_");
-  const fp = path.join(GROUPS_DIR, `${safeId}.json`);
-
   const storageKey = `saved-groups/${safeId}.json`;
   const existing = await readJson(storageKey);
 
-  const existingPhones = new Set((existing?.members || []).map(m =>
-    m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "")
-  ));
-  const newMembers = members.filter(m => {
-    const ph = m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "");
-    return ph && !existingPhones.has(ph);
-  });
+  const phoneOf = m => m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "");
+  const existingPhones = new Set((existing?.members || []).map(phoneOf));
+  const newMembers = members.filter(m => { const ph = phoneOf(m); return ph && !existingPhones.has(ph); });
 
-  // For brand log — replace the full current set (drop ex-members)
-  // Leavers = in existing but not in current members
-  const currentPhones = new Set(members.map(m => m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "")));
-  const prevPhones = new Set((existing?.members || []).map(m => m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "")));
+  const currentPhones = new Set(members.map(phoneOf));
+  const prevPhones = new Set((existing?.members || []).map(phoneOf));
   const leaverPhones = [...prevPhones].filter(p => !currentPhones.has(p));
 
-  // We preserve leavers in the saved file (don't delete — keep for history) but track delta
   const merged = [...(existing?.members || []), ...newMembers];
+  const savedAt = new Date().toISOString();
+  const newPhones = newMembers.map(phoneOf).filter(Boolean);
   const payload = {
     groupId,
     groupName,
     metadata: metadata || existing?.metadata || {},
     memberCount: merged.length,
     currentMemberCount: members.length,
-    savedAt: new Date().toISOString(),
+    savedAt,
     previousSavedAt: existing?.savedAt || null,
     leaverPhones,
+    // Delta from THIS refresh — shown in the UI next to the group name
+    lastDelta: { joined: newPhones.length, left: leaverPhones.length, at: savedAt },
     members: merged,
   };
   await writeJson(storageKey, payload);
   invalidateSavedMap();
-
-  // Per-group daily log — treats "left voluntarily" and "was removed" the same
-  const newPhones = newMembers.map(m => m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "")).filter(Boolean);
   await appendGroupDailyLog(groupId, groupName, newPhones, leaverPhones, members.length);
-
-  // Emit brand log entries
   await emitMemberChangesToBrands(groupId, groupName, existing?.members || [], members);
-
-  res.json({
-    ok: true,
+  return {
     file: `${safeId}.json`,
     total: merged.length,
-    new_added: newMembers.length,
-    already_existed: members.length - newMembers.length,
-    previous_count: existing?.memberCount || 0,
+    new_added: newPhones.length,
     leavers: leaverPhones.length,
-  });
+    already_existed: members.length - newPhones.length,
+    previous_count: existing?.memberCount || 0,
+  };
+}
+
+app.post("/api/save-group-delta", async (req, res) => {
+  const { groupId, groupName, members, metadata } = req.body;
+  if (!groupId || !members) return res.status(400).json({ error: "groupId + members required" });
+  const result = await persistGroupDelta(groupId, groupName, members, metadata);
+  res.json({ ok: true, ...result });
 });
 
 // Get group metadata (name, description, photo, creation date)
@@ -1154,6 +1148,7 @@ async function computeBrandStatsAndCache(b) {
       todayJoined,
       todayLeft,
       daily7,
+      lastDelta: d.lastDelta || null,
     });
     for (const m of d.members) {
       const ph = m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "");
@@ -1535,6 +1530,62 @@ app.get("/api/brands/:id/removals-log", async (req, res) => {
 });
 
 // Streaming remove-duplicates — returns ndjson progress
+// Bulk refresh — fetch members for every group in a brand, stream ndjson progress.
+// Client calls this with sessionKey (WaSender API key).
+app.post("/api/brands/:id/refresh-all", async (req, res) => {
+  await ensureBrands();
+  const b = BRANDS.find(x => x.id === req.params.id);
+  if (!b) return res.status(404).json({ error: "not found" });
+  const { sessionKey } = req.body || {};
+
+  res.setHeader("Content-Type", "application/x-ndjson");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  const write = obj => res.write(JSON.stringify(obj) + "\n");
+  write({ type: "start", total: b.groupIds.length, brand: b.name });
+
+  let totalJoined = 0, totalLeft = 0, failed = 0;
+  for (let i = 0; i < b.groupIds.length; i++) {
+    const gid = b.groupIds[i];
+    try {
+      write({ type: "group_start", index: i + 1, groupId: gid });
+      // Fetch live participants via WaSender (bypass cache)
+      const r = await wa("GET", `/groups/${gid}/participants`, null, sessionKey);
+      let participants;
+      if (r.ok) {
+        participants = Array.isArray(r.data) ? r.data : r.data?.data || [];
+      } else {
+        throw new Error(r.data?.message || `wa ${r.status || "fail"}`);
+      }
+      // Normalize phone on each participant
+      const normalized = participants.map(m => ({
+        ...m,
+        _phone: (m._phone || m.pn || m.jid || m.id || "").replace(/@.*/, "").replace(/\D/g, ""),
+      }));
+      // Get group name from metadata for logging
+      let groupName = gid;
+      try {
+        const md = await wa("GET", `/groups/${gid}/metadata`, null, sessionKey);
+        groupName = md.data?.data?.subject || md.data?.subject || gid;
+      } catch {}
+
+      const result = await persistGroupDelta(gid, groupName, normalized, {});
+      totalJoined += result.new_added;
+      totalLeft += result.leavers;
+      MEMBERS_CACHE.delete(gid);
+      write({
+        type: "group_done", index: i + 1, groupId: gid, groupName,
+        joined: result.new_added, left: result.leavers, total: result.total,
+      });
+    } catch (e) {
+      failed++;
+      write({ type: "group_error", index: i + 1, groupId: gid, error: String(e.message || e).slice(0, 200) });
+    }
+  }
+  invalidateBrandStatsCache(b.id);
+  write({ type: "done", successful: b.groupIds.length - failed, failed, totalJoined, totalLeft });
+  res.end();
+});
+
 app.post("/api/brands/:id/remove-duplicates-stream", async (req, res) => {
   await ensureBrands();
   const b = BRANDS.find(x => x.id === req.params.id);
