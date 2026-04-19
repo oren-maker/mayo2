@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import ExcelJS from "exceljs";
-import { readJson, writeJson, listKeys, deleteKey, writeBinary } from "./storage.mjs";
+import { readJson, writeJson, listKeys, deleteKey, writeBinary, STORAGE_ERRORS } from "./storage.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // DATA_DIR for persistent storage on Railway volume (defaults to __dirname for local)
@@ -602,6 +602,64 @@ app.get("/api/sessions/:id/groups/:groupId/participants", async (req, res) => {
 app.get("/api/error-log", async (_, res) => {
   const log = (await readJson("error-log.json")) || [];
   res.json({ log });
+});
+
+// Storage diagnostic — in-memory ring of recent read/list failures
+app.get("/api/diag/storage", async (_, res) => {
+  let brandsHead = null, brandsKeys = null;
+  try {
+    const { head } = await import("@vercel/blob");
+    const h = await head("brands.json");
+    brandsHead = { url: h.url.slice(0, 80), size: h.size, uploadedAt: h.uploadedAt };
+  } catch (e) { brandsHead = { error: String(e.message).slice(0, 200) }; }
+  try {
+    brandsKeys = await listKeys("brands.json");
+  } catch (e) { brandsKeys = { error: String(e.message).slice(0, 200) }; }
+  const brandsDirect = await readJson("brands.json");
+  res.json({
+    recentErrors: STORAGE_ERRORS,
+    brandsHead,
+    brandsKeys,
+    brandsJson: brandsDirect,
+    brandsJsonSummary: brandsDirect ? { count: brandsDirect.length, ids: brandsDirect.map(b => b.id) } : null,
+  });
+});
+
+// Rebuild brands.json from brand-logs/<id>.json — used after accidental overwrite
+app.post("/api/diag/restore-brands", async (_, res) => {
+  const logKeys = (await listKeys("brand-logs")).filter(k => k.endsWith(".json"));
+  const restored = [];
+  for (const key of logKeys) {
+    const id = key.replace(/^brand-logs\//, "").replace(/\.json$/, "");
+    const log = (await readJson(key)) || [];
+    const createdEv = [...log].reverse().find(l => l.type === "brand_created");
+    if (!createdEv) continue;
+    const groupsAdded = log.filter(l => l.type === "group_added" && l.groupId).map(l => l.groupId);
+    const groupsArch = new Set(log.filter(l => l.type === "group_archived" || l.type === "group_removed").map(l => l.groupId));
+    const groupIds = [...new Set(groupsAdded.filter(g => !groupsArch.has(g)))];
+    restored.push({
+      id,
+      name: createdEv.name || id,
+      color: "#25d366",
+      groupIds,
+      createdAt: createdEv.at || new Date().toISOString(),
+    });
+  }
+  // Merge with current brands.json so we don't wipe newer entries
+  const current = (await readJson("brands.json")) || [];
+  const byId = new Map(current.map(b => [b.id, b]));
+  for (const b of restored) {
+    if (!byId.has(b.id)) byId.set(b.id, b);
+    else {
+      const ex = byId.get(b.id);
+      // Prefer restored name/groupIds if current has placeholder
+      if (!ex.name || ex.name.startsWith("brand_")) ex.name = b.name;
+      if (!ex.groupIds?.length) ex.groupIds = b.groupIds;
+    }
+  }
+  const merged = [...byId.values()];
+  await writeJson("brands.json", merged);
+  res.json({ restored: restored.length, final: merged.length, brands: merged });
 });
 
 // ========== WaSender WEBHOOK — live event receiver ==========

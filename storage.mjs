@@ -6,20 +6,34 @@ import { put, list, del, head } from "@vercel/blob";
 const USE_BLOB = !!process.env.BLOB_READ_WRITE_TOKEN;
 const LOCAL_DATA = process.env.DATA_DIR || path.join(process.cwd());
 
+// Capture recent storage errors so we can see why reads are silently failing
+export const STORAGE_ERRORS = [];
+function recordErr(op, key, err) {
+  const entry = { at: new Date().toISOString(), op, key, err: String(err?.message || err).slice(0, 300) };
+  STORAGE_ERRORS.unshift(entry);
+  if (STORAGE_ERRORS.length > 50) STORAGE_ERRORS.length = 50;
+  console.error(`[storage] ${op} ${key}: ${entry.err}`);
+}
+
 function resolveLocalPath(key) {
   return path.join(LOCAL_DATA, key);
 }
 
 export async function readJson(key) {
   if (USE_BLOB) {
+    // Prefer head() — direct lookup by pathname, more reliable than list+filter
     try {
-      const { blobs } = await list({ prefix: key, limit: 1 });
-      const match = blobs.find(b => b.pathname === key);
-      if (!match) return null;
-      const res = await fetch(match.url);
-      if (!res.ok) return null;
+      const h = await head(key);
+      if (!h?.url) return null;
+      const res = await fetch(h.url, { cache: "no-store" });
+      if (!res.ok) { recordErr("fetch", key, `${res.status} ${res.statusText}`); return null; }
       return await res.json();
-    } catch { return null; }
+    } catch (e) {
+      // head() throws "BlobNotFoundError" for missing blobs — not a real error
+      if (e?.name === "BlobNotFoundError" || /not found/i.test(e?.message || "")) return null;
+      recordErr("readJson", key, e);
+      return null;
+    }
   }
   try { return JSON.parse(await fs.readFile(resolveLocalPath(key), "utf-8")); }
   catch { return null; }
@@ -38,8 +52,10 @@ export async function writeJson(key, data) {
 
 export async function listKeys(prefix) {
   if (USE_BLOB) {
-    const { blobs } = await list({ prefix, limit: 1000 });
-    return blobs.map(b => b.pathname);
+    try {
+      const { blobs } = await list({ prefix, limit: 1000 });
+      return blobs.map(b => b.pathname);
+    } catch (e) { recordErr("listKeys", prefix, e); return []; }
   }
   const dir = resolveLocalPath(prefix);
   try {
