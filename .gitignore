@@ -10,3 +10,6 @@ brands.json
 ig-config.json
 avatars/
 out/
+
+.vercel
+.env*.local

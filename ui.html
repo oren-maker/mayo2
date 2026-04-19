@@ -21,8 +21,8 @@
   .dot.off { background: var(--red); box-shadow: 0 0 8px var(--red); }
 
   .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-  .tabs { display: flex; gap: 6px; margin-bottom: 20px; overflow-x: auto; }
-  .tab { padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; background: var(--bg3); border: 1px solid var(--border); color: var(--dim); cursor: pointer; white-space: nowrap; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: nowrap; }
+  .tab { padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; background: var(--bg3); border: 1px solid var(--border); color: var(--dim); cursor: pointer; white-space: nowrap; flex: 1; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .tab.active { background: var(--green); color: white; border-color: var(--green); }
   body.ig-mode .tab.active { background: linear-gradient(135deg, var(--ig1), var(--ig3), var(--ig5)); color: white; border-color: transparent; }
 
@@ -62,6 +62,12 @@
   .spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* Skeleton loaders */
+  .skeleton { background: linear-gradient(90deg, var(--bg3) 0%, var(--bg2) 50%, var(--bg3) 100%); background-size: 200% 100%; animation: skeleton 1.2s ease-in-out infinite; border-radius: 8px; }
+  @keyframes skeleton { 0%{background-position:200% 0}100%{background-position:-200% 0} }
+  .skeleton-card { height: 70px; margin-bottom: 10px; }
+  .skeleton-row { height: 44px; margin-bottom: 6px; }
+
   .error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; padding: 12px; border-radius: 8px; font-size: 13px; margin: 12px 0; }
   .success { background: rgba(37,211,102,0.1); border: 1px solid rgba(37,211,102,0.3); color: #86efac; padding: 12px; border-radius: 8px; font-size: 13px; margin: 12px 0; }
   .empty { text-align: center; color: var(--mute); padding: 60px; font-size: 14px; }
@@ -75,7 +81,28 @@
   .broadcast-area textarea { min-height: 100px; }
   .selected-count { font-size: 13px; color: var(--green); font-weight: 600; margin: 8px 0; }
 
-  @media (max-width: 600px) { .group-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 720px) {
+    header { padding: 14px 14px; flex-wrap: wrap; gap: 8px }
+    h1 { font-size: 18px }
+    .platform-switch { width: 100%; justify-content: stretch }
+    .platform-btn { flex: 1; padding: 10px; text-align: center }
+    .container { padding: 14px 10px }
+    .tabs { gap: 3px; flex-wrap: nowrap }
+    .tab { padding: 6px 4px; font-size: 11px; border-radius: 6px }
+    .card { padding: 14px }
+    .card h2 { font-size: 15px }
+    .actions-row { flex-wrap: wrap; gap: 6px }
+    .actions-row button, .actions-row label, .actions-row a { flex: 1; min-width: 0; font-size: 12px; padding: 8px 10px; white-space: nowrap }
+    .group-grid { grid-template-columns: 1fr !important }
+    table { font-size: 11px }
+    th, td { padding: 6px 4px }
+    .avatar { width: 30px; height: 30px }
+    input, textarea, select { font-size: 14px }
+    .modal-bg { padding: 8px }
+    .prompt-modal .box { padding: 16px; max-width: 100% }
+    .health { padding: 6px 10px; font-size: 11px }
+  }
+  @media (max-width: 600px) { .group-grid { grid-template-columns: 1fr } }
   .stat-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
   .stat-val { font-size: 28px; font-weight: 800; line-height: 1 }
   .stat-lbl { font-size: 11px; color: var(--dim); margin-top: 6px; }
@@ -126,7 +153,8 @@
     <div class="tab" onclick="switchTab('groups')">👥 קבוצות</div>
     <div class="tab" onclick="switchTab('members')">📋 חברים</div>
     <div class="tab" onclick="switchTab('saved')">💾 שמורות</div>
-    <div class="tab" onclick="switchTab('brands')">🏷️ מותגים</div>
+    <div class="tab" onclick="STATE.activeBrandId=null;switchTab('brands')">🏷️ מותגים</div>
+    <div class="tab" onclick="switchTab('archive')">📦 ארכיון</div>
     <div class="tab" onclick="switchTab('send')">✉️ שליחה</div>
   </div>
   <div class="tabs" id="ig-tabs" style="display:none">
@@ -158,13 +186,14 @@ let STATE = {
   igScrapeResult: null,
 };
 
-function switchPlatform(p) {
+function switchPlatform(p, _noHash) {
   STATE.platform = p;
   document.getElementById("plat-wa").classList.toggle("active", p === "whatsapp");
   document.getElementById("plat-ig").classList.toggle("active", p === "instagram");
   document.getElementById("wa-tabs").style.display = p === "whatsapp" ? "flex" : "none";
   document.getElementById("ig-tabs").style.display = p === "instagram" ? "flex" : "none";
   document.body.classList.toggle("ig-mode", p === "instagram");
+  if (!_noHash) updateHash();
   render();
   setTimeout(() => {
     if (p === "instagram" && STATE.igTab === "connect") {
@@ -174,11 +203,12 @@ function switchPlatform(p) {
   }, 50);
 }
 
-function switchIgTab(t) {
+function switchIgTab(t, _noHash) {
   STATE.igTab = t;
   document.querySelectorAll("#ig-tabs .tab").forEach((el, i) =>
     el.classList.toggle("active", ["connect","followers","scrape","dm","content","agent"][i] === t)
   );
+  if (!_noHash) updateHash();
   render();
   setTimeout(() => {
     if (t === "connect") {
@@ -188,10 +218,11 @@ function switchIgTab(t) {
   }, 50);
 }
 
-function switchTab(t) {
+function switchTab(t, _noHash) {
   STATE.tab = t;
-  const tabs = ["connect","groups","members","saved","brands","send"];
+  const tabs = ["connect","groups","members","saved","brands","archive","send"];
   document.querySelectorAll("#wa-tabs .tab").forEach((el, i) => el.classList.toggle("active", tabs[i] === t));
+  if (!_noHash) updateHash();
   render();
 }
 
@@ -209,14 +240,59 @@ function render() {
     return;
   }
   switch (STATE.tab) {
-    case "connect": c.innerHTML = renderConnect(); break;
+    case "connect": c.innerHTML = renderConnect(); setTimeout(() => loadSessions(false), 50); break;
     case "groups": c.innerHTML = renderGroups(); break;
     case "members": c.innerHTML = renderMembers(); break;
     case "saved": c.innerHTML = renderSaved(); loadSavedGroups(); break;
+    case "archive": c.innerHTML = renderArchive(); loadArchivedGroups(); break;
     case "brands": c.innerHTML = renderBrands(); loadBrands(); break;
     case "send": c.innerHTML = renderSend(); break;
   }
 }
+
+function renderArchive() {
+  return `<div class="card">
+    <h2>📦 קבוצות בארכיון</h2>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:14px">קבוצות שהועברו לארכיון — ניתנות לשחזור בכל עת</div>
+    <div id="archived-list"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+  </div>`;
+}
+
+// ========== HASH ROUTING ==========
+function updateHash() {
+  let hash = "/" + STATE.platform;
+  if (STATE.platform === "whatsapp") {
+    hash += "/" + STATE.tab;
+    if (STATE.tab === "brands" && STATE.activeBrandId) hash += "/" + STATE.activeBrandId;
+    if (STATE.tab === "members" && STATE.selectedGroup) hash += "/" + encodeURIComponent(STATE.selectedGroup);
+  } else {
+    hash += "/" + STATE.igTab;
+  }
+  const current = window.location.hash.slice(1);
+  if (current !== hash) window.location.hash = hash;
+}
+
+function applyHash() {
+  const raw = window.location.hash.slice(1) || "/whatsapp/connect";
+  const parts = raw.split("/").filter(Boolean);
+  const platform = parts[0] === "instagram" ? "instagram" : "whatsapp";
+  switchPlatform(platform, true);
+  if (platform === "whatsapp") {
+    const tab = parts[1] || "connect";
+    const valid = ["connect","groups","members","saved","brands","archive","send"];
+    STATE.tab = valid.includes(tab) ? tab : "connect";
+    if (STATE.tab === "brands" && parts[2]) STATE.activeBrandId = parts[2];
+    else if (STATE.tab !== "brands") STATE.activeBrandId = null;
+    if (STATE.tab === "members" && parts[2]) STATE.selectedGroup = decodeURIComponent(parts[2]);
+    switchTab(STATE.tab, true);
+  } else {
+    const igTab = parts[1] || "connect";
+    const valid = ["connect","followers","scrape","dm","content","agent"];
+    STATE.igTab = valid.includes(igTab) ? igTab : "connect";
+    switchIgTab(STATE.igTab, true);
+  }
+}
+window.addEventListener("hashchange", applyHash);
 
 // ========== BRANDS TAB ==========
 function renderBrands() {
@@ -284,6 +360,7 @@ async function deleteBrand(id) {
 
 async function openBrand(id) {
   STATE.activeBrandId = id;
+  updateHash();
   render();
 }
 
@@ -297,11 +374,11 @@ function renderBrandDetail() {
   `;
 }
 
-function tabLoadBrandDetail() {
+function tabLoadBrandDetail(force) {
   const id = STATE.activeBrandId;
   if (!id) return;
   Promise.all([
-    fetch(`/api/brands/${id}/stats`).then(r => r.json()),
+    fetch(`/api/brands/${id}/stats${force ? "?refresh=1" : ""}`).then(r => r.json()),
     fetch(`/api/brands/${id}/log`).then(r => r.json()),
   ]).then(([stats, logR]) => {
     const el = document.getElementById("brand-detail");
@@ -311,26 +388,45 @@ function tabLoadBrandDetail() {
     const log = logR.log || [];
     const leaversCount = log.filter(l => l.type === "member_left").length;
     el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
         <div style="width:56px;height:56px;border-radius:14px;background:${b.color||'var(--green)'};display:flex;align-items:center;justify-content:center;font-size:26px">🏷️</div>
-        <div style="flex:1">
+        <div style="flex:1;min-width:0">
           <h2 style="margin:0">${esc(b.name)}</h2>
-          <div style="font-size:12px;color:var(--dim);margin-top:4px">עודכן לאחרונה: ${stats.latest_saved_at ? new Date(stats.latest_saved_at).toLocaleString("he-IL") : "מעולם לא"}</div>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">קבוצות עודכנו: ${stats.latest_saved_at ? new Date(stats.latest_saved_at).toLocaleString("he-IL") : "—"}</div>
         </div>
+        <button class="btn-ghost" onclick="tabLoadBrandDetail(true)" style="flex-shrink:0">🔄 רענן</button>
+      </div>
+      <div style="font-size:11px;color:var(--dim);background:var(--bg3);padding:6px 12px;border-radius:8px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+        <span>📊 סטטיסטיקות עודכנו:</span>
+        <b>${stats.updatedAt ? new Date(stats.updatedAt).toLocaleString("he-IL") : "—"}</b>
+        ${stats.cached ? '<span style="color:var(--cyan)">· 💾 מקאש</span>' : '<span style="color:var(--green)">· ✓ חדש</span>'}
+        <span style="margin-right:auto">רענון אוטומטי כל שעה</span>
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
         <div class="stat-card" style="cursor:default"><div class="stat-val" style="color:var(--green)">${stats.groups.length}</div><div class="stat-lbl">קבוצות</div></div>
         <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','all','סה״כ חברים')"><div class="stat-val" style="color:var(--cyan)">${stats.total_sum}</div><div class="stat-lbl">סה"כ חברים (כולל כפולים)</div></div>
         <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','unique','ייחודיים')"><div class="stat-val" style="color:#fbbf24">${stats.unique_members}</div><div class="stat-lbl">ייחודיים</div></div>
-        <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','duplicates','כפולים')"><div class="stat-val" style="color:var(--red)">${stats.duplicates}</div><div class="stat-lbl">כפולים</div></div>
+        <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','duplicates','כפולים')">
+          <div class="stat-val" style="color:var(--red)">${stats.duplicates}</div>
+          <div class="stat-lbl">כפולים</div>
+          ${stats.removable ? `
+            <div style="font-size:10px;color:var(--dim);margin-top:6px;line-height:1.5;border-top:1px solid var(--border);padding-top:6px">
+              ✅ ניתן להסיר: <b style="color:var(--green)">${stats.removable.fully}</b><br>
+              ⚠️ חלקי: <b style="color:#fbbf24">${stats.removable.partial}</b><br>
+              ❌ חסום: <b style="color:var(--red)">${stats.removable.blocked}</b><br>
+              <span style="color:var(--mute)">אדמין ב-${stats.removable.admin_groups}/${stats.groups.length} קבוצות</span>
+            </div>` : ''}
+        </div>
         <div class="stat-card" style="cursor:pointer" onclick="openBrandMembers('${b.id}','leavers','עזיבות')"><div class="stat-val" style="color:#fb923c">${leaversCount}</div><div class="stat-lbl">עזיבות (מצטבר)</div></div>
       </div>
 
       <div class="actions-row" style="margin-bottom:16px">
-        <button class="btn-green" onclick="exportBrand('${b.id}','all','${esc(b.name)}')">📊 ייצוא כל החברים</button>
-        <button class="btn-ghost" onclick="exportBrand('${b.id}','unique','${esc(b.name)}')">📊 ייצוא ייחודיים</button>
-        <button class="btn-ghost" onclick="exportBrand('${b.id}','duplicates','${esc(b.name)}')">📊 ייצוא כפולים</button>
+        <button class="btn-green" onclick="exportBrand('${b.id}','all','${esc(b.name)}')">⬇ ייצוא הכל</button>
+        <button class="btn-ghost" onclick="exportBrand('${b.id}','unique','${esc(b.name)}')">⬇ ייצוא ייחודיים</button>
+        <button class="btn-ghost" onclick="exportBrand('${b.id}','duplicates','${esc(b.name)}')">⬇ ייצוא כפולים</button>
+        ${(stats.removable && (stats.removable.fully > 0 || stats.removable.partial > 0)) ? `<button class="btn-red" onclick="previewRemoveDups('${b.id}')" title="מסיר את הכפולים מהקבוצות הגדולות (משאיר בקטנה)">🗑 הסר כפולים (${stats.removable.fully}${stats.removable.partial?'+'+stats.removable.partial+' חלקי':''})</button>` : ''}
+        <button class="btn-green" onclick="broadcastToBrandGroups('${b.id}','${esc(b.name)}')">📣 דוור לקבוצות המותג</button>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -339,8 +435,11 @@ function tabLoadBrandDetail() {
           <div style="max-height:400px;overflow-y:auto">
             ${stats.groups.map(g => `
               <div style="background:var(--bg3);padding:10px 12px;border-radius:8px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
-                <div style="flex:1;min-width:0"><div style="font-weight:600">${esc(g.groupName||g.groupId)}</div><div style="font-size:11px;color:var(--dim)">${g.memberCount||0} חברים · ${g.savedAt ? new Date(g.savedAt).toLocaleDateString("he-IL") : "—"}</div></div>
-                <button class="btn-green" style="padding:4px 10px;font-size:11px" onclick="exportSavedGroupByGid('${g.groupId}')">📊</button>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:600;display:flex;align-items:center;gap:6px">${esc(g.groupName||g.groupId)} ${g.iAmAdmin ? '<span style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#111;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700">👑</span>' : ''}</div>
+                  <div style="font-size:11px;color:var(--dim)">${g.memberCount||0} חברים · ${g.savedAt ? new Date(g.savedAt).toLocaleDateString("he-IL") : "—"}</div>
+                </div>
+                <button class="btn-green" style="padding:4px 10px;font-size:11px" onclick="exportSavedGroupByGid('${g.groupId}')">⬇</button>
                 <button class="btn-red" style="padding:4px 10px;font-size:11px" onclick="removeGroupFromBrand('${b.id}','${g.groupId}')">🗑</button>
               </div>
             `).join("") || '<div class="empty">אין קבוצות במותג. הוסף מהטאב קבוצות →</div>'}
@@ -378,6 +477,345 @@ async function removeGroupFromBrand(brandId, groupId) {
   if (!confirm("להסיר את הקבוצה מהמותג?")) return;
   await fetch(`/api/brands/${brandId}/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
   tabLoadBrandDetail();
+}
+
+async function ensureSessionKey() {
+  if (STATE.sessionKey) return STATE.sessionKey;
+  if (!STATE.activeSession) {
+    // find first connected session
+    const r = await (await fetch("/api/sessions")).json();
+    const connected = (r.sessions || []).find(s => ["connected","ready"].includes((s.status||"").toLowerCase()));
+    if (!connected) return null;
+    STATE.activeSession = connected.id;
+    STATE.sessions = r.sessions;
+  }
+  const r = await (await fetch(`/api/sessions/${STATE.activeSession}/groups`)).json();
+  if (r.sessionKey) STATE.sessionKey = r.sessionKey;
+  if (r.groups) STATE.groups = r.groups;
+  return STATE.sessionKey;
+}
+
+async function previewRemoveDups(brandId) {
+  const preview = await (await fetch(`/api/brands/${brandId}/remove-duplicates`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "preview" }),
+  })).json();
+  if (preview.error) return alert("שגיאה: " + preview.error);
+  if (!preview.totalOps) return alert("אין כפולים להסיר 🎉");
+
+  // Open modal with preview + live progress
+  let modal = document.getElementById("rd-modal");
+  if (modal) modal.remove();
+  modal = document.createElement("div");
+  modal.id = "rd-modal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.onclick = e => { if (e.target === modal && !modal.dataset.busy) modal.remove(); };
+  const summary = preview.groups.map(g =>
+    `<div style="padding:8px 12px;background:var(--bg2);border-radius:8px;margin-bottom:4px;display:flex;justify-content:space-between"><span><b>${esc(g.groupName)}</b> · ${g.size} חברים</span><span style="color:var(--red)">− ${g.toRemove}</span></div>`
+  ).join("");
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:720px;width:100%;max-height:92vh;display:flex;flex-direction:column">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:17px">🗑 הסרת כפולים · ${esc(preview.totalOps)} פעולות</h3>
+        <button class="btn-ghost" onclick="document.getElementById('rd-modal').remove()">✕</button>
+      </div>
+      <div style="overflow-y:auto;flex:1;padding:18px 22px">
+        <div style="font-size:13px;color:var(--dim);margin-bottom:10px">הכפולים יישארו רק בקבוצה הקטנה ביותר במותג. המערכת תסיר מהקבוצות הגדולות:</div>
+        <div style="margin-bottom:16px">${summary}</div>
+        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;padding:10px;border-radius:8px;font-size:12px;margin-bottom:16px">
+          ⚠️ דורש אדמין בכל הקבוצות שמהן מסירים. ~10 שניות בין פעולה לפעולה. עבור ${preview.totalOps} פעולות — כ-${Math.ceil(preview.totalOps * 10 / 60)} דקות.
+        </div>
+        <div id="rd-status"></div>
+        <div id="rd-log" style="max-height:300px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;line-height:1.7;display:none"></div>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn-ghost" onclick="document.getElementById('rd-modal').remove()">ביטול</button>
+        <button class="btn-red" id="rd-start-btn" onclick="runRemoveDupsStream('${brandId}')">🗑 התחל הסרה</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function runRemoveDupsStream(brandId) {
+  const modal = document.getElementById("rd-modal");
+  const btn = document.getElementById("rd-start-btn");
+  const statusEl = document.getElementById("rd-status");
+  const logEl = document.getElementById("rd-log");
+  if (!modal || !btn) { alert("UI error"); return; }
+  if (modal.dataset.busy === "1") return;
+
+  // Lock immediately to prevent double-click
+  modal.dataset.busy = "1";
+  btn.disabled = true;
+  btn.style.opacity = "0.5";
+  btn.style.cursor = "not-allowed";
+  btn.textContent = "⏳ מאתחל...";
+  statusEl.innerHTML = '<div class="loading"><div class="spinner"></div>מאתחל חיבור...</div>';
+
+  let sessionKey;
+  try {
+    sessionKey = await ensureSessionKey();
+  } catch (e) {
+    statusEl.innerHTML = `<div class="error">שגיאה בטעינת session: ${esc(e.message)}</div>`;
+    modal.dataset.busy = "";
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.textContent = "🗑 התחל הסרה";
+    return;
+  }
+  if (!sessionKey) {
+    statusEl.innerHTML = `<div class="error">סשן לא מחובר — כנס לטאב חיבור קודם</div>`;
+    modal.dataset.busy = "";
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.textContent = "🗑 התחל הסרה";
+    return;
+  }
+
+  btn.textContent = "⏳ פועל... אל תסגור";
+  logEl.style.display = "block";
+  logEl.innerHTML = "";
+  statusEl.innerHTML = `
+    <div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px;color:var(--dim)">
+        <span id="rd-progress-text">0/? · התחלה...</span>
+        <span id="rd-success">✓ 0 · ✗ 0</span>
+      </div>
+      <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+        <div id="rd-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--red),#fbbf24,var(--green));transition:width 0.3s"></div>
+      </div>
+    </div>
+  `;
+
+  const addLine = (html) => { logEl.innerHTML += html; logEl.scrollTop = logEl.scrollHeight; };
+  let successful = 0, failed = 0, total = 0;
+
+  try {
+    const r = await fetch(`/api/brands/${brandId}/remove-duplicates-stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionKey }),
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`server ${r.status}: ${txt.slice(0,200)}`);
+    }
+    if (!r.body) throw new Error("streaming not supported");
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let ev;
+        try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.type === "start") {
+          total = ev.totalOps;
+          addLine(`<div style="color:var(--cyan)">🚀 מתחיל — ${ev.totalOps} פעולות ב-${ev.groups} קבוצות</div>`);
+        } else if (ev.type === "group_start") {
+          addLine(`<div style="color:var(--cyan);margin-top:6px;font-weight:700">▶ <b>${esc(ev.groupName)}</b> — ${ev.count} להסרה</div>`);
+        } else if (ev.type === "removed") {
+          successful++;
+          addLine(`<div style="color:var(--green)">✓ <span style="font-family:monospace">${esc(ev.phone)}</span> → ${esc(ev.groupName)}</div>`);
+          const pct = Math.floor((ev.processed / ev.totalOps) * 100);
+          document.getElementById("rd-bar").style.width = pct + "%";
+          document.getElementById("rd-progress-text").textContent = `${ev.processed}/${ev.totalOps}`;
+          document.getElementById("rd-success").innerHTML = `<span style="color:var(--green)">✓ ${successful}</span> · <span style="color:var(--red)">✗ ${failed}</span>`;
+        } else if (ev.type === "failed") {
+          failed++;
+          addLine(`<div style="color:var(--red)">✗ ${esc(ev.phone)} → ${esc(ev.groupName)} — ${esc(ev.error||"")}</div>`);
+          const pct = Math.floor((ev.processed / ev.totalOps) * 100);
+          document.getElementById("rd-bar").style.width = pct + "%";
+          document.getElementById("rd-progress-text").textContent = `${ev.processed}/${ev.totalOps}`;
+          document.getElementById("rd-success").innerHTML = `<span style="color:var(--green)">✓ ${successful}</span> · <span style="color:var(--red)">✗ ${failed}</span>`;
+        } else if (ev.type === "group_done") {
+          addLine(`<div style="color:var(--mute);font-size:11px">◼ סיום ${esc(ev.groupName)}</div>`);
+        } else if (ev.type === "done") {
+          addLine(`<div style="color:var(--green);font-weight:700;margin-top:10px;padding:8px;background:rgba(37,211,102,0.15);border-radius:6px">✅ סיימתי — ${ev.successful}/${ev.total} הצליחו${ev.failed?`, ${ev.failed} נכשלו`:""}</div>`);
+          btn.textContent = "✓ סיים";
+          btn.style.background = "var(--green)";
+          btn.disabled = false;
+          btn.style.opacity = "1";
+          btn.onclick = () => { modal.remove(); tabLoadBrandDetail(true); };
+        }
+      }
+    }
+  } catch (e) {
+    addLine(`<div class="error">${esc(e.message)}</div>`);
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.textContent = "🗑 נסה שוב";
+    modal.dataset.busy = "";
+  }
+}
+
+async function broadcastToBrandGroups(brandId, brandName) {
+  const stats = await (await fetch(`/api/brands/${brandId}/stats`)).json();
+  const groups = stats.groups || [];
+  if (!groups.length) return alert("אין קבוצות במותג");
+
+  let modal = document.getElementById("bc-modal");
+  if (modal) modal.remove();
+  modal = document.createElement("div");
+  modal.id = "bc-modal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.onclick = e => { if (e.target === modal && !modal.dataset.busy) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:720px;width:100%;max-height:92vh;display:flex;flex-direction:column">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:17px">📣 דוור לקבוצות · ${esc(brandName)}</h3>
+        <button class="btn-ghost" onclick="document.getElementById('bc-modal').remove()">✕</button>
+      </div>
+      <div style="overflow-y:auto;flex:1;padding:18px 22px">
+        <label>קבוצות יעד — רק קבוצות מסומנות יקבלו את ההודעה</label>
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="document.querySelectorAll('#bc-groups input').forEach(c=>c.checked=true);updateBcCount()">✓ סמן הכל</button>
+          <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="document.querySelectorAll('#bc-groups input').forEach(c=>c.checked=false);updateBcCount()">✗ בטל סימון</button>
+          <span id="bc-count" style="margin-right:auto;padding:6px 12px;color:var(--green);font-weight:700;font-size:13px"></span>
+        </div>
+        <div id="bc-groups" style="max-height:220px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:6px;margin-bottom:16px">
+          ${groups.map(g => `
+            <label style="display:block;padding:10px 12px;border-radius:6px;cursor:pointer;background:var(--bg2);margin-bottom:4px">
+              <input type="checkbox" checked data-gid="${esc(g.groupId)}" onchange="updateBcCount()" style="width:18px;height:18px;accent-color:var(--green);vertical-align:middle;margin-left:10px" />
+              <span style="font-size:14px;font-weight:600;vertical-align:middle">${esc(g.groupName||g.groupId)}</span>
+              <span style="color:var(--dim);font-size:12px;vertical-align:middle;margin-right:8px">· ${g.memberCount||0} חברים</span>
+            </label>
+          `).join("")}
+        </div>
+
+        <label>טקסט ההודעה</label>
+        <textarea id="bc-text" style="width:100%;min-height:160px;resize:vertical;box-sizing:border-box;margin-bottom:14px" placeholder="כתוב את ההודעה כאן... ניתן להכניס טקסט ארוך"></textarea>
+
+        <label>📎 צרף תמונה / וידאו / מסמך (אופציונלי)</label>
+        <input type="file" id="bc-media" accept="image/*,video/*,application/pdf" style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);width:100%;box-sizing:border-box;margin-bottom:14px" />
+
+        <label>⏱ השהייה בין קבוצות (שניות) · מינימום 3 · מקסימום 60</label>
+        <input type="number" id="bc-delay" min="3" max="60" value="10" style="width:120px;margin-bottom:14px" />
+
+        <div id="bc-status"></div>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn-ghost" onclick="document.getElementById('bc-modal').remove();tabLoadBrandDetail()">סגור</button>
+        <button class="btn-green" id="bc-send-btn" onclick="sendBrandBroadcast('${brandId}','${esc(brandName)}')">📤 שלח דוור</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  setTimeout(updateBcCount, 0);
+}
+
+function updateBcCount() {
+  const total = document.querySelectorAll('#bc-groups input').length;
+  const checked = document.querySelectorAll('#bc-groups input:checked').length;
+  const el = document.getElementById("bc-count");
+  if (el) el.textContent = `${checked}/${total} מסומנות`;
+}
+
+async function sendBrandBroadcast(brandId, brandName) {
+  const modal = document.getElementById("bc-modal");
+  const btn = document.getElementById("bc-send-btn");
+  const statusEl = document.getElementById("bc-status");
+  if (modal.dataset.busy === "1") return;
+  const groupIds = [...document.querySelectorAll('#bc-groups input:checked')].map(c => c.dataset.gid);
+  if (!groupIds.length) return alert("לא סומנה אף קבוצה");
+  const text = document.getElementById("bc-text").value.trim();
+  const mediaFile = document.getElementById("bc-media").files[0];
+  if (!text && !mediaFile) return alert("כתוב טקסט או צרף מדיה");
+  const delaySec = parseInt(document.getElementById("bc-delay").value) || 10;
+  const sessionKey = await ensureSessionKey();
+  if (!sessionKey) return alert("סשן לא מחובר — חזור לטאב קבוצות");
+
+  modal.dataset.busy = "1";
+  btn.disabled = true;
+  btn.style.opacity = "0.5";
+  btn.style.cursor = "not-allowed";
+  btn.textContent = "⏳ שולח... אל תסגור";
+  statusEl.innerHTML = '<div class="loading" style="padding:8px"><div class="spinner"></div>מכין שליחה...</div>';
+
+  try {
+    let mediaUrl = null, mediaType = null;
+    if (mediaFile) {
+      statusEl.innerHTML = '<div class="loading" style="padding:8px"><div class="spinner"></div>מעלה מדיה...</div>';
+      const up = await fetch("/api/upload-media", {
+        method: "POST",
+        headers: { "Content-Type": mediaFile.type || "application/octet-stream" },
+        body: mediaFile,
+      });
+      const upD = await up.json();
+      if (!up.ok) throw new Error(upD.error || "upload failed");
+      mediaUrl = upD.url;
+      mediaType = upD.mediaType;
+    }
+
+    statusEl.innerHTML = `
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px">
+        <div id="bc-live-header" style="font-weight:700;margin-bottom:10px">📤 מתחיל שליחה ל-${groupIds.length} קבוצות (${delaySec}ש׳ בין כל אחת)...</div>
+        <div id="bc-live-log" style="max-height:200px;overflow-y:auto;font-size:13px;line-height:1.7"></div>
+      </div>
+    `;
+    const logEl = document.getElementById("bc-live-log");
+    const headerEl = document.getElementById("bc-live-header");
+    const addLine = (html) => { logEl.innerHTML += html; logEl.scrollTop = logEl.scrollHeight; };
+
+    const r = await fetch(`/api/brands/${brandId}/broadcast-stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, sessionKey, groupIds, mediaUrl, mediaType, delayMs: delaySec * 1000 }),
+    });
+    if (!r.body) throw new Error("streaming not supported");
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalSummary = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let ev;
+        try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.type === "start") {
+          headerEl.textContent = `📤 שולח ל-${ev.total} קבוצות (${delaySec}ש׳ בין כל אחת)`;
+        } else if (ev.type === "sending") {
+          addLine(`<div style="color:var(--cyan)">⏳ [${ev.index}/${ev.total}] שולח ל-<b>${esc(ev.groupName)}</b>...</div>`);
+        } else if (ev.type === "sent") {
+          addLine(`<div style="color:var(--green)">✓ [${ev.index}/${ev.total}] נשלח ל-<b>${esc(ev.groupName)}</b></div>`);
+        } else if (ev.type === "failed") {
+          addLine(`<div style="color:var(--red)">✗ [${ev.index}/${ev.total}] נכשל ב-<b>${esc(ev.groupName)}</b> — ${esc(ev.error||"unknown")}</div>`);
+        } else if (ev.type === "waiting") {
+          addLine(`<div style="color:var(--mute);font-size:11px">⏱ ממתין ${Math.ceil(ev.waitMs/1000)}ש׳...</div>`);
+        } else if (ev.type === "done") {
+          finalSummary = ev;
+          headerEl.innerHTML = `✅ <b>סיימתי</b> · נשלחו ${ev.sent}/${ev.total}${ev.failed?` · נכשלו ${ev.failed}`:""}`;
+        }
+      }
+    }
+
+    if (finalSummary) {
+      btn.textContent = "✓ נשלח";
+      btn.style.background = "var(--green)";
+      // Keep modal open so user can see the full report
+      addLine(`<div style="margin-top:10px;padding:8px;background:var(--bg2);border-radius:6px;color:var(--dim);font-size:12px">📜 הכל נרשם בלוג המותג</div>`);
+    } else {
+      throw new Error("stream ended without final status");
+    }
+  } catch (e) {
+    statusEl.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+    modal.dataset.busy = "";
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.style.cursor = "pointer";
+    btn.textContent = "📤 שלח דוור";
+  }
 }
 
 async function exportBrand(brandId, type, brandName) {
@@ -421,7 +859,7 @@ async function openBrandMembers(brandId, type, label) {
           <div style="font-size:12px;color:var(--dim);margin-top:2px">${r.members.length} רשומות</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn-green" onclick="exportBrand('${brandId}','${type}','${esc(r.brand.name)}')">📊 ייצוא Excel</button>
+          <button class="btn-green" onclick="exportBrand('${brandId}','${type}','${esc(r.brand.name)}')">⬇ ייצוא Excel</button>
           <button class="btn-ghost" onclick="document.getElementById('members-modal').remove()">✕</button>
         </div>
       </div>
@@ -475,10 +913,9 @@ function renderSaved() {
     <div class="card">
       <h2>💾 קבוצות שמורות</h2>
       <div class="actions-row">
-        <button class="btn-green" onclick="mergeAllGroups()">🔀 איחוד + הסרת כפולים → Excel</button>
         <button class="btn-ghost" onclick="loadSavedGroups()">🔄 רענן</button>
       </div>
-      <div id="merge-result"></div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:14px">💡 לאיחוד והסרת כפולים — כנס ל"🏷️ מותגים" ובחר מותג → ייצוא Excel</div>
       <div id="saved-list"><div class="loading"><div class="spinner"></div>טוען...</div></div>
     </div>
   `;
@@ -577,7 +1014,7 @@ async function loadSavedGroups() {
               <div style="font-size:12px;color:var(--dim)">${g.memberCount} חברים · נשמר ${new Date(g.savedAt).toLocaleString("he-IL")}</div>
             </div>
             <button class="btn-green" onclick="loadSavedGroup('${esc(g.file)}')">📂 פתח</button>
-            <button class="btn-ghost" onclick="deleteSavedGroup('${esc(g.file)}')">🗑</button>
+            <button class="btn-ghost" onclick="archiveSavedGroup('${esc(g.file)}','${esc(g.groupName)}')" title="העבר לארכיון">📦</button>
           </div>
           <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             ${brandChips}
@@ -617,10 +1054,40 @@ async function loadSavedGroup(file) {
   setTimeout(renderMembersTable, 50);
 }
 
-async function deleteSavedGroup(file) {
-  if (!confirm("למחוק?")) return;
-  await fetch(`/api/saved-groups/${file}`, { method: "DELETE" });
+async function archiveSavedGroup(file, name) {
+  await fetch(`/api/saved-groups/${file}/archive`, { method: "POST" });
   loadSavedGroups();
+  showUndo(`📦 "${name}" הועבר לארכיון`, async () => {
+    await fetch(`/api/archived-groups/${file}/restore`, { method: "POST" });
+    loadSavedGroups();
+  });
+}
+
+async function restoreArchived(file) {
+  await fetch(`/api/archived-groups/${file}/restore`, { method: "POST" });
+  loadArchivedGroups();
+  flash("♻️ שוחזר");
+}
+
+async function loadArchivedGroups() {
+  const el = document.getElementById("archived-list");
+  if (!el) return;
+  try {
+    const r = await (await fetch("/api/archived-groups")).json();
+    if (!r.groups?.length) { el.innerHTML = '<div class="empty">אין קבוצות בארכיון</div>'; return; }
+    el.innerHTML = r.groups.map(g => `
+      <div style="display:flex;align-items:center;gap:12px;padding:14px;background:var(--bg3);border-radius:10px;margin-bottom:8px;opacity:0.8">
+        <div style="width:44px;height:44px;border-radius:50%;background:#444;display:flex;align-items:center;justify-content:center;font-size:20px">📦</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700">${esc(g.groupName)}</div>
+          <div style="font-size:12px;color:var(--dim)">${g.memberCount} חברים · הועבר לארכיון: ${new Date(g.archivedAt).toLocaleString("he-IL")}</div>
+        </div>
+        <button class="btn-green" onclick="restoreArchived('${esc(g.file)}')">♻️ שחזר</button>
+      </div>
+    `).join("");
+  } catch (e) {
+    el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
 }
 
 // ========== CHECK PHONE VALIDITY ==========
@@ -898,7 +1365,7 @@ function renderIgFollowers() {
       <div class="actions-row">
         <button class="btn-green" onclick="fetchIgFollowers('followers')">⬇ משוך עוקבים</button>
         <button class="btn-green" onclick="fetchIgFollowers('following')">⬇ משוך נעקבים</button>
-        <button class="btn-ghost" onclick="exportIgFollowers()">📊 ייצוא Excel</button>
+        <button class="btn-ghost" onclick="exportIgFollowers()">⬇ ייצוא Excel</button>
       </div>
       <div id="ig-followers-list"><div class="empty">הזן username ולחץ משוך</div></div>
     </div>
@@ -1103,20 +1570,28 @@ function renderConnect() {
   return `
     <div class="card">
       <h2>🔗 חשבונות WhatsApp מחוברים</h2>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:10px" id="sessions-meta">—</div>
       <div class="actions-row">
-        <button class="btn-green" onclick="loadSessions()">🔄 רענן</button>
+        <button class="btn-green" onclick="loadSessions(true)">🔄 רענן עכשיו</button>
+        <button class="btn-ghost" onclick="showConnLog()">📜 לוג חיבור</button>
       </div>
       <div id="sessions-list"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+      <div id="conn-log"></div>
     </div>
   `;
 }
 
-async function loadSessions() {
+async function loadSessions(force) {
   const el = document.getElementById("sessions-list");
   if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div>טוען...</div>';
   try {
-    const r = await (await fetch("/api/sessions")).json();
+    const r = await (await fetch("/api/sessions" + (force ? "?refresh=1" : ""))).json();
     STATE.sessions = r.sessions || [];
+    const meta = document.getElementById("sessions-meta");
+    if (meta && r.updatedAt) {
+      const t = new Date(r.updatedAt).toLocaleString("he-IL");
+      meta.innerHTML = `🕒 עודכן לאחרונה: <b>${t}</b> · רענון אוטומטי כל שעה${r.stale ? ' · <span style="color:#fbbf24">⚠️ נתונים ישנים (השרת נכשל)</span>' : ''}`;
+    }
     const el2 = document.getElementById("sessions-list");
     if (!el2) return;
     if (!STATE.sessions.length) { el2.innerHTML = '<div class="empty">אין חשבונות. צור חדש או הוסף API key ב-.env</div>'; return; }
@@ -1142,6 +1617,35 @@ async function loadSessions() {
   } catch (e) {
     const el3 = document.getElementById("sessions-list");
     if (el3) el3.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function showConnLog() {
+  const el = document.getElementById("conn-log");
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>טוען לוג...</div>';
+  try {
+    const r = await (await fetch("/api/connection-log")).json();
+    const log = r.log || [];
+    if (!log.length) { el.innerHTML = '<div class="empty" style="margin-top:14px">אין לוג עדיין — הרענון הבא ישמור רשומה</div>'; return; }
+    el.innerHTML = `
+      <div style="margin-top:16px;padding:14px;background:var(--bg3);border-radius:10px">
+        <h3 style="font-size:14px;margin-bottom:10px">📜 לוג חיבור (${log.length} רשומות)</h3>
+        <div style="max-height:400px;overflow-y:auto">
+          ${log.map(l => `
+            <div style="padding:10px;background:var(--bg2);border-radius:8px;margin-bottom:6px;font-size:12px">
+              <div style="color:var(--dim)">${new Date(l.at).toLocaleString("he-IL")}</div>
+              <div style="margin-top:4px">
+                <span style="color:var(--green);font-weight:700">✓ ${l.connected} מחוברים</span>
+                ${l.total - l.connected > 0 ? `<span style="color:var(--red);margin-right:10px">✗ ${l.total-l.connected} לא מחוברים</span>` : ''}
+              </div>
+              ${l.sessions.map(s => `<div style="color:${['connected','ready'].includes((s.status||'').toLowerCase())?'var(--green)':'var(--red)'};font-size:11px;margin-top:2px">• ${esc(s.name||'?')} (${esc(s.phone||'?')}) — ${esc(s.status||'unknown')}</div>`).join('')}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
   }
 }
 
@@ -1205,26 +1709,96 @@ function renderGroups() {
   return `
     <div class="card">
       <h2>👥 קבוצות (Session: ${STATE.activeSession})</h2>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:10px" id="groups-meta">—</div>
       <div class="actions-row">
-        <button class="btn-green" onclick="loadGroups()">🔄 רענן קבוצות</button>
+        <button class="btn-green" onclick="loadGroups(true)">🔄 רענן עכשיו</button>
+        <button class="btn-green" onclick="checkAdminStatus()" style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#111">👑 בדוק אדמין</button>
       </div>
       <div id="groups-grid"><div class="loading"><div class="spinner"></div>טוען קבוצות...</div></div>
     </div>
   `;
 }
 
-async function loadGroups() {
+STATE.groupsPage = 1;
+STATE.groupsSearch = "";
+const GROUPS_PER_PAGE = 20;
+
+let _searchTimer = null;
+function debouncedGroupsSearch(v) {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => {
+    STATE.groupsSearch = v;
+    STATE.groupsPage = 1;
+    renderGroupsGrid();
+    const input = document.getElementById("groups-search");
+    if (input) { input.focus(); const len = input.value.length; input.setSelectionRange(len, len); }
+  }, 220);
+}
+
+async function checkAdminStatus() {
+  const before = STATE.groups.filter(g => g.iAmAdmin).length;
+  flash("👑 בודק אדמין בכל הקבוצות...");
+  await loadGroups(true);
+  const after = STATE.groups.filter(g => g.iAmAdmin).length;
+  const totalGroups = STATE.groups.length;
+  const diff = after - before;
+  let msg = `👑 אתה אדמין ב-${after}/${totalGroups} קבוצות`;
+  if (diff > 0) msg += ` · ➕ התווספו ${diff} חדשות`;
+  else if (diff < 0) msg += ` · ➖ הוסרו ${Math.abs(diff)}`;
+  flash(msg, 5000);
+}
+
+async function loadGroups(force) {
   const el = document.getElementById("groups-grid");
-  if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div>טוען קבוצות...</div>';
+  if (el) el.innerHTML = '<div class="group-grid">' + Array(6).fill('<div class="skeleton skeleton-card"></div>').join('') + '</div>';
   try {
-    const r = await (await fetch(`/api/sessions/${STATE.activeSession}/groups`)).json();
+    const r = await (await fetch(`/api/sessions/${STATE.activeSession}/groups` + (force ? "?refresh=1" : ""))).json();
     STATE.groups = r.groups || [];
     STATE.sessionKey = r.sessionKey || null;
+    STATE.groupsPage = 1;
+    const meta = document.getElementById("groups-meta");
+    if (meta && r.updatedAt) {
+      meta.innerHTML = `🕒 עודכן: <b>${new Date(r.updatedAt).toLocaleString("he-IL")}</b> · רענון אוטומטי כל שעה${r.cached ? " · 💾 מקאש" : ""} · ${STATE.groups.length} קבוצות`;
+    }
+    renderGroupsGrid();
+    return;
+  } catch (e) {
+    const el3 = document.getElementById("groups-grid");
+    if (el3) el3.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+function renderGroupsGrid() {
     const el2 = document.getElementById("groups-grid");
     if (!el2) return;
     if (!STATE.groups.length) { el2.innerHTML = '<div class="empty">לא נמצאו קבוצות</div>'; return; }
-    el2.className = "group-grid";
-    el2.innerHTML = STATE.groups.map(g => {
+
+    // Filter by search
+    const q = (STATE.groupsSearch || "").toLowerCase();
+    const filtered = q
+      ? STATE.groups.filter(g => ((g.subject||g.name||"") + " " + (g.desc||g.description||"")).toLowerCase().includes(q))
+      : STATE.groups;
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / GROUPS_PER_PAGE));
+    if (STATE.groupsPage > totalPages) STATE.groupsPage = 1;
+    const start = (STATE.groupsPage - 1) * GROUPS_PER_PAGE;
+    const pageItems = filtered.slice(start, start + GROUPS_PER_PAGE);
+
+    const searchBox = `<input id="groups-search" placeholder="🔍 חפש קבוצה..." value="${esc(STATE.groupsSearch||"")}" style="width:100%;padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:12px" oninput="debouncedGroupsSearch(this.value)" />`;
+
+    let paginator = "";
+    if (totalPages > 1) {
+      paginator = `
+        <div style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn-ghost" onclick="STATE.groupsPage=Math.max(1,STATE.groupsPage-1);renderGroupsGrid()" ${STATE.groupsPage<=1?'disabled style="opacity:0.4"':''}>← הקודם</button>
+          <span style="padding:0 12px;color:var(--dim);font-size:13px">עמוד ${STATE.groupsPage}/${totalPages} · ${filtered.length} קבוצות</span>
+          <button class="btn-ghost" onclick="STATE.groupsPage=Math.min(${totalPages},STATE.groupsPage+1);renderGroupsGrid()" ${STATE.groupsPage>=totalPages?'disabled style="opacity:0.4"':''}>הבא →</button>
+        </div>
+      `;
+    }
+
+    el2.classList.remove("group-grid");
+    el2.innerHTML = searchBox + `<div class="group-grid">` + pageItems.map(g => {
       const gid = g.id || g.jid || g.groupId;
       const name = g.subject || g.name || gid || "—";
       const img = g.imgUrl || g.picture;
@@ -1237,6 +1811,7 @@ async function loadGroups() {
         else if (delta < 0) deltaBadge = `<span style="background:rgba(239,68,68,0.15);color:#fca5a5;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:600">−${Math.abs(delta)}</span>`;
       }
       const savedBadge = g.saved ? `<span style="background:rgba(34,211,238,0.15);color:var(--cyan);padding:3px 9px;border-radius:10px;font-size:11px;font-weight:600">💾 נשמר</span>` : "";
+      const adminBadge = g.iAmAdmin ? `<span style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#111;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700" title="אתה אדמין בקבוצה">👑 אדמין</span>` : "";
 
       return `
         <div class="group-card" onclick='selectGroup(${JSON.stringify(gid)})'>
@@ -1246,6 +1821,7 @@ async function loadGroups() {
               <div style="font-weight:700;font-size:15px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
               <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
                 ${size ? `<span style="color:var(--green);font-weight:700;font-size:13px">${size} חברים</span>` : '<span style="color:var(--mute);font-size:12px">— חברים</span>'}
+                ${adminBadge}
                 ${savedBadge}
                 ${deltaBadge}
               </div>
@@ -1254,11 +1830,7 @@ async function loadGroups() {
           ${(g.desc || g.description) ? `<div style="font-size:11px;color:var(--mute);margin-top:8px;line-height:1.4;max-height:30px;overflow:hidden">${esc((g.desc||g.description).slice(0,80))}</div>` : ""}
         </div>
       `;
-    }).join("");
-  } catch (e) {
-    const el3 = document.getElementById("groups-grid");
-    if (el3) el3.innerHTML = `<div class="error">${esc(e.message)}</div>`;
-  }
+    }).join("") + `</div>` + paginator;
 }
 
 async function selectGroup(groupId) {
@@ -1266,7 +1838,9 @@ async function selectGroup(groupId) {
   const g = STATE.groups.find(g => (g.id||g.jid||g.groupId) === groupId);
   STATE.selectedGroupName = g?.subject || g?.name || groupId;
   STATE.selectedGroupPhoto = g?.imgUrl || null;
-  switchTab("members");
+  STATE.tab = "members";
+  updateHash();
+  switchTab("members", true);
   setTimeout(async () => {
     if (STATE.selectedGroupPhoto) {
       const av = document.getElementById("group-avatar");
@@ -1291,11 +1865,12 @@ function renderMembers() {
         </div>
       </div>
       <div style="padding:18px 20px">
+        <div style="font-size:12px;color:var(--dim);margin-bottom:8px" id="members-meta">—</div>
         <div class="actions-row">
-          <button class="btn-green" onclick="loadMembers()">🔄 רענן</button>
+          <button class="btn-green" onclick="loadMembers(true)">🔄 רענן עכשיו</button>
           <button class="btn-green" onclick="enrichMembers()">🎨 העשר</button>
           <button class="btn-green" onclick="saveCurrentGroup()">💾 שמור</button>
-          <button class="btn-green" onclick="exportExcel()">📊 Excel</button>
+          <button class="btn-green" onclick="exportExcel()">⬇ Excel</button>
           <button class="btn-green" onclick="checkValidity()">✅ בדוק תקינות</button>
           <button class="btn-ghost" onclick="autoLabelMembers()">🏷️ תיוג אוטומטי</button>
           <button class="btn-ghost" onclick="importContactsCSV()">📥 ייבוא שמות (CSV)</button>
@@ -1319,17 +1894,23 @@ function renderMembers() {
   `;
 }
 
-async function loadMembers() {
+async function loadMembers(force) {
   const el = document.getElementById("members-table");
   if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div>טוען חברים...</div>';
   try {
     const sessionKey = STATE.sessionKey || "";
-    const params = sessionKey ? `?sessionKey=${encodeURIComponent(sessionKey)}` : "";
-    const r = await (await fetch(`/api/sessions/${STATE.activeSession}/groups/${encodeURIComponent(STATE.selectedGroup)}/participants${params}`)).json();
+    const params = new URLSearchParams();
+    if (sessionKey) params.set("sessionKey", sessionKey);
+    if (force) params.set("refresh", "1");
+    const qs = params.toString() ? "?" + params.toString() : "";
+    const r = await (await fetch(`/api/sessions/${STATE.activeSession}/groups/${encodeURIComponent(STATE.selectedGroup)}/participants${qs}`)).json();
     STATE.members = (r.participants || []).map(m => ({ ...m, _phone: (m.pn || m.jid || m.id || "").replace("@c.us","").replace("@s.whatsapp.net","") }));
     STATE.selectedMembers = new Set();
+    const meta = document.getElementById("members-meta");
+    if (meta && r.updatedAt) {
+      meta.innerHTML = `🕒 עודכן: <b>${new Date(r.updatedAt).toLocaleString("he-IL")}</b> · רענון אוטומטי כל שעה${r.cached ? " · 💾 מקאש" : ""}`;
+    }
     renderMembersTable();
-    // Auto-start enrichment
     setTimeout(enrichMembers, 200);
   } catch (e) {
     const el2 = document.getElementById("members-table");
@@ -1532,16 +2113,44 @@ async function checkHealth() {
 
 // ========== UTILS ==========
 function esc(s) { return String(s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-function flash(msg) {
+function flash(msg, duration = 2000) {
   const n = document.createElement("div");
   n.textContent = msg;
-  n.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--green);color:white;padding:10px 20px;border-radius:8px;font-weight:600;font-size:13px;z-index:999";
+  n.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--green);color:white;padding:10px 20px;border-radius:8px;font-weight:600;font-size:13px;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,0.5)";
   document.body.appendChild(n);
-  setTimeout(() => n.remove(), 2000);
+  setTimeout(() => n.remove(), duration);
 }
 
 // ========== INIT ==========
-render();
+// ========== KEYBOARD SHORTCUTS ==========
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
+  if (e.key === "/") { e.preventDefault(); const s = document.getElementById("groups-search"); if (s) s.focus(); }
+  if (e.key === "r" && !e.ctrlKey && !e.metaKey) {
+    if (STATE.tab === "groups") loadGroups(true);
+    else if (STATE.tab === "connect") loadSessions(true);
+    else if (STATE.tab === "brands" && STATE.activeBrandId) tabLoadBrandDetail(true);
+  }
+  if (e.key === "g") switchTab("groups");
+  if (e.key === "b") switchTab("brands");
+  if (e.key === "c") switchTab("connect");
+  if (e.key === "Escape") {
+    const modal = document.getElementById("bc-modal") || document.getElementById("members-modal") || document.getElementById("prompt-modal");
+    if (modal) modal.remove();
+  }
+});
+
+// ========== UNDO SYSTEM ==========
+function showUndo(message, undoFn, timeoutMs = 8000) {
+  const toast = document.createElement("div");
+  toast.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg2);color:var(--text);padding:12px 18px;border-radius:10px;font-size:13px;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid var(--border);display:flex;align-items:center;gap:14px";
+  toast.innerHTML = `<span>${esc(message)}</span><button class="btn-ghost" style="padding:4px 12px;font-size:12px">↶ בטל</button>`;
+  toast.querySelector("button").onclick = async () => { toast.remove(); try { await undoFn(); flash("✓ בוטל"); } catch (e) { alert("undo failed: " + e.message); } };
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), timeoutMs);
+}
+
+applyHash();
 checkHealth();
 setTimeout(loadSessions, 500);
 </script>
