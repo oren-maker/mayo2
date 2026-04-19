@@ -547,8 +547,30 @@ function logLabel(t) {
 }
 
 async function refreshAllBrandGroups(brandId, brandName) {
+  if (window.__refreshAllRunning) return; // guard against double-click
+  window.__refreshAllRunning = true;
+
+  // Disable the trigger button (can be multiple on screen — disable all matching)
+  const triggerBtns = document.querySelectorAll('[onclick*="refreshAllBrandGroups"]');
+  triggerBtns.forEach(btn => {
+    btn.disabled = true;
+    btn.dataset._origText = btn.innerHTML;
+    btn.innerHTML = "⏳ מרענן...";
+    btn.style.opacity = "0.6";
+    btn.style.cursor = "not-allowed";
+  });
+  const reenable = () => {
+    window.__refreshAllRunning = false;
+    triggerBtns.forEach(btn => {
+      btn.disabled = false;
+      if (btn.dataset._origText) btn.innerHTML = btn.dataset._origText;
+      btn.style.opacity = "";
+      btn.style.cursor = "";
+    });
+  };
+
   const sessionKey = await ensureSessionKey();
-  if (!sessionKey) { alert("אין סשן מחובר"); return; }
+  if (!sessionKey) { reenable(); alert("אין סשן מחובר"); return; }
 
   let modal = document.getElementById("refresh-all-modal");
   if (modal) modal.remove();
@@ -563,13 +585,29 @@ async function refreshAllBrandGroups(brandId, brandName) {
         <h3 style="margin:0">🔄 רענון כל הקבוצות — ${esc(brandName)}</h3>
         <button class="btn-ghost" id="ra-close" style="visibility:hidden" onclick="document.getElementById('refresh-all-modal').remove()">✕</button>
       </div>
-      <div id="ra-summary" style="font-size:13px;color:var(--dim);margin-bottom:10px">מתחיל...</div>
-      <div id="ra-log" style="max-height:440px;overflow-y:auto;background:var(--bg3);border-radius:8px;padding:10px;font-size:12px;font-family:monospace"></div>
+      <div id="ra-summary" style="font-size:13px;color:var(--dim);margin-bottom:8px">מתחיל...</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="flex:1;height:10px;background:var(--bg3);border-radius:5px;overflow:hidden">
+          <div id="ra-fill" style="height:100%;width:0%;background:linear-gradient(90deg,var(--green),var(--cyan));transition:width .3s"></div>
+        </div>
+        <div id="ra-pct" style="font-size:12px;color:var(--dim);min-width:56px;text-align:left">0 / 0</div>
+      </div>
+      <div id="ra-log" style="max-height:400px;overflow-y:auto;background:var(--bg3);border-radius:8px;padding:10px;font-size:12px;font-family:monospace"></div>
     </div>`;
   document.body.appendChild(modal);
   const logEl = document.getElementById("ra-log");
   const sumEl = document.getElementById("ra-summary");
+  const fillEl = document.getElementById("ra-fill");
+  const pctEl = document.getElementById("ra-pct");
   const addLine = (html) => { logEl.innerHTML += html; logEl.scrollTop = logEl.scrollHeight; };
+
+  let total = 0, done = 0;
+  const tick = () => {
+    if (!total) return;
+    const pct = Math.min(100, Math.floor((done / total) * 100));
+    fillEl.style.width = pct + "%";
+    pctEl.textContent = `${done} / ${total}`;
+  };
 
   try {
     const r = await fetch(`/api/brands/${brandId}/refresh-all`, {
@@ -582,32 +620,36 @@ async function refreshAllBrandGroups(brandId, brandName) {
     const dec = new TextDecoder();
     let buf = "";
     while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) break;
       buf += dec.decode(value, { stream: true });
       const lines = buf.split("\n"); buf = lines.pop() || "";
       for (const line of lines) {
         if (!line.trim()) continue;
         let ev; try { ev = JSON.parse(line); } catch { continue; }
         if (ev.type === "start") {
+          total = ev.total;
           sumEl.textContent = `מרענן ${ev.total} קבוצות...`;
+          tick();
           addLine(`<div style="color:var(--cyan)">🚀 ${ev.total} קבוצות ב-${esc(ev.brand)}</div>`);
         } else if (ev.type === "group_start") {
-          addLine(`<div style="color:var(--mute);margin-top:4px">⏳ [${ev.index}] ${esc(ev.groupId).slice(0,24)}...</div>`);
+          addLine(`<div style="color:var(--mute);margin-top:4px">⏳ [${ev.index}/${total}] ${esc(ev.groupId).slice(0,24)}...</div>`);
         } else if (ev.type === "group_done") {
+          done++; tick();
           const parts = [];
           if (ev.joined) parts.push(`<span style="color:var(--green)">🟢 +${ev.joined}</span>`);
           if (ev.left) parts.push(`<span style="color:var(--red)">🔴 -${ev.left}</span>`);
           if (!parts.length) parts.push(`<span style="color:var(--dim)">ללא שינוי</span>`);
-          addLine(`<div style="color:var(--green)">✓ [${ev.index}] <b>${esc(ev.groupName)}</b> · ${ev.total} חברים · ${parts.join(" ")}</div>`);
+          addLine(`<div style="color:var(--green)">✓ [${ev.index}/${total}] <b>${esc(ev.groupName)}</b> · ${ev.total} חברים · ${parts.join(" ")}</div>`);
         } else if (ev.type === "group_error") {
-          addLine(`<div style="color:var(--red)">✗ [${ev.index}] ${esc(ev.groupId).slice(0,24)} — ${esc(ev.error)}</div>`);
+          done++; tick();
+          addLine(`<div style="color:var(--red)">✗ [${ev.index}/${total}] ${esc(ev.groupId).slice(0,24)} — ${esc(ev.error)}</div>`);
         } else if (ev.type === "done") {
           sumEl.innerHTML = `✅ סיימתי — ${ev.successful} הצליחו${ev.failed ? `, ${ev.failed} נכשלו` : ""}. סה"כ: <b style="color:var(--green)">+${ev.totalJoined}</b> נכנסו · <b style="color:var(--red)">-${ev.totalLeft}</b> יצאו`;
           addLine(`<div style="color:var(--green);font-weight:700;margin-top:10px;padding:8px;background:rgba(37,211,102,0.15);border-radius:6px">✅ סיימתי</div>`);
           delete modal.dataset.busy;
           document.getElementById("ra-close").style.visibility = "";
-          // Refresh stats view
+          reenable();
           tabLoadBrandDetail(true);
         }
       }
@@ -616,6 +658,7 @@ async function refreshAllBrandGroups(brandId, brandName) {
     addLine(`<div style="color:var(--red)">שגיאה: ${esc(e.message)}</div>`);
     delete modal.dataset.busy;
     document.getElementById("ra-close").style.visibility = "";
+    reenable();
   }
 }
 
