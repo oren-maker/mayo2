@@ -1540,9 +1540,18 @@ app.post("/api/brands/:id/refresh-all", async (req, res) => {
 
   res.setHeader("Content-Type", "application/x-ndjson");
   res.setHeader("Cache-Control", "no-cache, no-transform");
-  const write = obj => res.write(JSON.stringify(obj) + "\n");
-  write({ type: "start", total: b.groupIds.length, brand: b.name });
+  let clientGone = false;
+  res.on("close", () => { clientGone = true; });
+  // Continue the work even when the client closed the modal — just swallow write failures
+  const write = obj => {
+    if (clientGone) return;
+    try { res.write(JSON.stringify(obj) + "\n"); } catch { clientGone = true; }
+  };
+  const runId = `run_${Date.now()}`;
+  const runStartedAt = new Date().toISOString();
+  write({ type: "start", total: b.groupIds.length, brand: b.name, runId });
 
+  const runEntries = []; // per-group records persisted to the log
   let totalJoined = 0, totalLeft = 0, failed = 0;
   for (let i = 0; i < b.groupIds.length; i++) {
     const gid = b.groupIds[i];
@@ -1556,12 +1565,10 @@ app.post("/api/brands/:id/refresh-all", async (req, res) => {
       } else {
         throw new Error(r.data?.message || `wa ${r.status || "fail"}`);
       }
-      // Normalize phone on each participant
       const normalized = participants.map(m => ({
         ...m,
         _phone: (m._phone || m.pn || m.jid || m.id || "").replace(/@.*/, "").replace(/\D/g, ""),
       }));
-      // Get group name from metadata for logging
       let groupName = gid;
       try {
         const md = await wa("GET", `/groups/${gid}/metadata`, null, sessionKey);
@@ -1572,18 +1579,51 @@ app.post("/api/brands/:id/refresh-all", async (req, res) => {
       totalJoined += result.new_added;
       totalLeft += result.leavers;
       MEMBERS_CACHE.delete(gid);
+      runEntries.push({
+        groupId: gid, groupName, ok: true,
+        joined: result.new_added, left: result.leavers, total: result.total,
+      });
       write({
         type: "group_done", index: i + 1, groupId: gid, groupName,
         joined: result.new_added, left: result.leavers, total: result.total,
       });
     } catch (e) {
       failed++;
-      write({ type: "group_error", index: i + 1, groupId: gid, error: String(e.message || e).slice(0, 200) });
+      const errMsg = String(e.message || e).slice(0, 200);
+      runEntries.push({ groupId: gid, ok: false, error: errMsg });
+      write({ type: "group_error", index: i + 1, groupId: gid, error: errMsg });
     }
   }
   invalidateBrandStatsCache(b.id);
-  write({ type: "done", successful: b.groupIds.length - failed, failed, totalJoined, totalLeft });
-  res.end();
+
+  // Persist the full run to a per-brand log — visible even after the modal closes
+  try {
+    const logKey = `refresh-all-log/${b.id}.json`;
+    const existing = (await readJson(logKey)) || [];
+    const runRecord = {
+      runId,
+      at: runStartedAt,
+      finishedAt: new Date().toISOString(),
+      total: b.groupIds.length,
+      successful: b.groupIds.length - failed,
+      failed,
+      totalJoined,
+      totalLeft,
+      clientDetached: clientGone,
+      entries: runEntries,
+    };
+    existing.unshift(runRecord);
+    await writeJson(logKey, existing.slice(0, 50));
+  } catch (e) { await logError("refresh-all log", e.message); }
+
+  write({ type: "done", successful: b.groupIds.length - failed, failed, totalJoined, totalLeft, runId });
+  try { res.end(); } catch {}
+});
+
+// Fetch the refresh-all log for a brand
+app.get("/api/brands/:id/refresh-all-log", async (req, res) => {
+  const log = (await readJson(`refresh-all-log/${req.params.id}.json`)) || [];
+  res.json({ log });
 });
 
 app.post("/api/brands/:id/remove-duplicates-stream", async (req, res) => {
