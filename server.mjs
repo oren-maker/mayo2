@@ -1513,10 +1513,19 @@ app.post("/api/brands/:id/remove-duplicates", async (req, res) => {
   }
 
   if (mode !== "execute") {
+    const verbose = req.query.verbose === "1" || req.body.verbose === true;
     const summary = [...plan.entries()].map(([gid, phones]) => ({
       groupId: gid, groupName: groupNames.get(gid), size: groupSizes.get(gid), toRemove: phones.length,
+      ...(verbose ? { phones } : {}),
     }));
-    return res.json({ preview: true, totalOps: [...plan.values()].reduce((a,p)=>a+p.length,0), groups: summary });
+    return res.json({
+      preview: true,
+      totalOps: [...plan.values()].reduce((a,p)=>a+p.length,0),
+      protectedSkipped,
+      myPhone: myPhone ? myPhone.slice(0,3) + "***" + myPhone.slice(-4) : null,
+      adminCount: adminPhones.size,
+      groups: summary,
+    });
   }
 
   if (!sessionKey) return res.status(400).json({ error: "sessionKey required for execute" });
