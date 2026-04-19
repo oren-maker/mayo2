@@ -2130,9 +2130,16 @@ function renderGroupsGrid() {
 
     // Filter by search
     const q = (STATE.groupsSearch || "").toLowerCase();
-    const filtered = q
+    const filteredRaw = q
       ? STATE.groups.filter(g => ((g.subject||g.name||"") + " " + (g.desc||g.description||"")).toLowerCase().includes(q))
       : STATE.groups;
+    // Sort newest-created first (WhatsApp creation timestamp). Groups missing
+    // the field fall to the bottom so recently-created ones surface on top.
+    const filtered = [...filteredRaw].sort((a, b) => {
+      const ca = Number(a.creation) || 0;
+      const cb = Number(b.creation) || 0;
+      return cb - ca;
+    });
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / GROUPS_PER_PAGE));
     if (STATE.groupsPage > totalPages) STATE.groupsPage = 1;
@@ -2168,6 +2175,27 @@ function renderGroupsGrid() {
       const savedBadge = g.saved ? `<span style="background:rgba(34,211,238,0.15);color:var(--cyan);padding:3px 9px;border-radius:10px;font-size:11px;font-weight:600">💾 נשמר</span>` : "";
       const adminBadge = g.iAmAdmin ? `<span style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#111;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700" title="אתה אדמין בקבוצה">👑 אדמין</span>` : "";
 
+      // Creation timestamp is WhatsApp UNIX seconds; savedAt is our ISO string
+      const fmtAgo = (ms) => {
+        if (!ms) return null;
+        const diff = Date.now() - ms;
+        const m = Math.floor(diff / 60000);
+        if (m < 1) return "עכשיו";
+        if (m < 60) return `לפני ${m} דק'`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `לפני ${h} שע'`;
+        const d = Math.floor(h / 24);
+        return `לפני ${d} ימים`;
+      };
+      const creationMs = g.creation ? Number(g.creation) * 1000 : null;
+      const savedMs = g.savedAt ? new Date(g.savedAt).getTime() : null;
+      const createdLine = creationMs
+        ? `<span title="${new Date(creationMs).toLocaleString('he-IL')}">🗓 נוצרה ${fmtAgo(creationMs)}</span>`
+        : "";
+      const savedLine = savedMs
+        ? `<span title="${new Date(savedMs).toLocaleString('he-IL')}">💾 נשמרה ${fmtAgo(savedMs)}</span>`
+        : `<span style="color:var(--mute)">💾 לא נשמרה</span>`;
+
       return `
         <div class="group-card" onclick='selectGroup(${JSON.stringify(gid)})'>
           <div style="display:flex;align-items:center;gap:12px">
@@ -2179,6 +2207,10 @@ function renderGroupsGrid() {
                 ${adminBadge}
                 ${savedBadge}
                 ${deltaBadge}
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;margin-top:6px;font-size:11px;color:var(--dim);flex-wrap:wrap">
+                ${createdLine}
+                ${savedLine}
               </div>
             </div>
           </div>

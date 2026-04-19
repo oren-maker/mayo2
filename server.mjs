@@ -410,13 +410,8 @@ async function fetchGroupsForSession(sid) {
     })
   );
 
-  // Check saved-groups status for each
-  const savedFiles = (await listKeys("saved-groups")).filter(k => k.endsWith(".json"));
-  const savedMap = new Map();
-  for (const f of savedFiles) {
-    const data = await readJson(f);
-    if (data) savedMap.set(data.groupId, { file: f.replace(/^saved-groups\//, ""), memberCount: data.memberCount, savedAt: data.savedAt });
-  }
+  // Saved-groups status — use the cached map (already parallelized + cached 5min)
+  const savedMap = await loadSavedGroupsMap();
   const withStatus = enriched.map(g => {
     const gid = g.id || g.jid || g.groupId;
     const saved = savedMap.get(gid);
