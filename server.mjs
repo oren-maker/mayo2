@@ -73,12 +73,15 @@ function parseCookies(header) {
   return out;
 }
 
-// Login rate-limit — 5 failed attempts per IP per 15 min
+// Login rate-limit — 10 failed attempts per IP per 5 min (tighter window, more attempts)
 const LOGIN_ATTEMPTS = new Map(); // ip → { count, firstAt }
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_MAX_FAILS = 5;
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_MAX_FAILS = 10;
 function loginRateLimit(req) {
-  const ip = (req.headers["x-forwarded-for"]?.split(",")[0].trim()) || req.socket.remoteAddress || "unknown";
+  const ip = (req.headers["x-forwarded-for"]?.split(",")[0].trim())
+    || req.headers["x-real-ip"]
+    || req.socket.remoteAddress
+    || "unknown";
   const now = Date.now();
   const e = LOGIN_ATTEMPTS.get(ip);
   if (!e || (now - e.firstAt) > LOGIN_WINDOW_MS) return { ip, blocked: false };
