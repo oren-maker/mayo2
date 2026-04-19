@@ -1928,6 +1928,7 @@ function renderConnect() {
       <div style="font-size:12px;color:var(--dim);margin-bottom:10px" id="sessions-meta">—</div>
       <div class="actions-row">
         <button class="btn-green" onclick="loadSessions(true)">🔄 רענן עכשיו</button>
+        <button class="btn-green" onclick="addNewSessionPrompt()">➕ הוסף חשבון חדש</button>
         <button class="btn-ghost" onclick="showConnLog()">📜 לוג חיבור</button>
       </div>
       <div id="sessions-list"><div class="loading"><div class="spinner"></div>טוען...</div></div>
@@ -2001,6 +2002,71 @@ async function showConnLog() {
     `;
   } catch (e) {
     el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+}
+
+async function addNewSessionPrompt() {
+  let modal = document.getElementById("new-session-modal");
+  if (modal) modal.remove();
+  modal = document.createElement("div");
+  modal.id = "new-session-modal";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px";
+  modal.onclick = e => { if (e.target === modal && !modal.dataset.busy) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:22px;min-width:320px;max-width:440px;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h3 style="margin:0">➕ חשבון WhatsApp חדש</h3>
+        <button class="btn-ghost" onclick="document.getElementById('new-session-modal').remove()">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:14px">תן שם לסשן ומספר — אחר כך תופיע QR לסריקה בטלפון</div>
+      <input id="ns-name" placeholder="שם (למשל: MAYO2)" style="width:100%;padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:10px" />
+      <input id="ns-phone" placeholder="+972XXXXXXXXX" style="width:100%;padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:14px;direction:ltr;text-align:left" />
+      <button id="ns-create-btn" class="btn-green" style="width:100%" onclick="createAndConnectSession()">צור וחבר</button>
+      <div id="ns-status" style="margin-top:14px"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  setTimeout(() => document.getElementById("ns-name")?.focus(), 100);
+}
+
+async function createAndConnectSession() {
+  const name = document.getElementById("ns-name").value.trim();
+  const phoneRaw = document.getElementById("ns-phone").value.trim();
+  const phone_number = phoneRaw.replace(/\s|-/g, "");
+  const statusEl = document.getElementById("ns-status");
+  if (!name || !phone_number) { statusEl.innerHTML = `<div class="error">חסר שם או מספר</div>`; return; }
+  if (!/^\+?\d{9,15}$/.test(phone_number)) { statusEl.innerHTML = `<div class="error">מספר לא תקין (דוגמה: +972501234567)</div>`; return; }
+
+  const btn = document.getElementById("ns-create-btn");
+  const modal = document.getElementById("new-session-modal");
+  btn.disabled = true; btn.textContent = "יוצר..."; modal.dataset.busy = "1";
+  statusEl.innerHTML = `<div class="loading"><div class="spinner"></div>יוצר סשן חדש ב-WaSender...</div>`;
+
+  try {
+    const r = await (await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, phone_number }),
+    })).json();
+    if (!r.ok) {
+      const msg = r.data?.message || r.data?.error || JSON.stringify(r.data || r).slice(0, 200);
+      statusEl.innerHTML = `<div class="error">שגיאה ביצירה: ${esc(msg)}</div>`;
+      btn.disabled = false; btn.textContent = "צור וחבר"; delete modal.dataset.busy;
+      return;
+    }
+    const created = r.data?.data || r.data;
+    const id = created?.id || created?.session_id || created?.sessionId;
+    if (!id) {
+      statusEl.innerHTML = `<div class="error">לא התקבל session ID</div>`;
+      btn.disabled = false; btn.textContent = "צור וחבר"; delete modal.dataset.busy;
+      return;
+    }
+    statusEl.innerHTML = `<div class="success">✅ נוצר (id=${id}). מייצר QR...</div>`;
+    await loadSessions();
+    // Now run the existing connect flow which handles QR + polling
+    setTimeout(() => { document.getElementById("new-session-modal")?.remove(); connectSession(id); }, 600);
+  } catch (e) {
+    statusEl.innerHTML = `<div class="error">שגיאה: ${esc(e.message)}</div>`;
+    btn.disabled = false; btn.textContent = "צור וחבר"; delete modal.dataset.busy;
   }
 }
 
