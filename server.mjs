@@ -1558,7 +1558,11 @@ app.post("/api/brands/:id/refresh-all", async (req, res) => {
       if (r.ok) {
         participants = Array.isArray(r.data) ? r.data : r.data?.data || [];
       } else {
-        throw new Error(r.data?.message || `wa ${r.status || "fail"}`);
+        // Surface a useful message: WaSender 422 is usually "session lost access"
+        // — include their error/message field so the log shows the real reason.
+        const msg = r.data?.message || r.data?.error || (r.data ? JSON.stringify(r.data).slice(0, 160) : "");
+        const hint = r.status === 422 ? "(סשן איבד גישה לקבוצה?)" : "";
+        throw new Error(`wa ${r.status || "fail"}${msg ? " — " + msg : ""}${hint ? " " + hint : ""}`);
       }
       const normalized = participants.map(m => ({
         ...m,
