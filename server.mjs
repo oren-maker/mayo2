@@ -1516,6 +1516,33 @@ app.post("/api/brands/:id/remove-duplicates", async (req, res) => {
     }
   }
 
+  // LIVE ADMIN CROSS-CHECK — protects against stale saved data that misses admin flags.
+  // Fetches current metadata from WaSender for every brand group and merges the live
+  // admin set into adminPhones. If we can't confirm admin status for any group and
+  // the caller asked to execute, we refuse (preview still returns).
+  let adminCheckFailed = [];
+  if (sessionKey) {
+    const results = await Promise.all(b.groupIds.map(async gid => {
+      try {
+        const md = await wa("GET", `/groups/${gid}/metadata`, null, sessionKey);
+        if (!md.ok) return { gid, ok: false, error: `wa ${md.status}` };
+        const parts = (md.data?.data || md.data)?.participants || [];
+        const admins = [];
+        for (const p of parts) {
+          if (p.isAdmin || p.isSuperAdmin || p.admin || p.role === "admin" || p.role === "superadmin") {
+            const ph = (p._phone || p.pn || p.jid || p.id || "").replace(/@.*/, "").replace(/\D/g, "");
+            if (ph) admins.push(ph);
+          }
+        }
+        return { gid, ok: true, admins };
+      } catch (e) { return { gid, ok: false, error: String(e.message || e).slice(0, 120) }; }
+    }));
+    for (const r of results) {
+      if (!r.ok) adminCheckFailed.push({ gid: r.gid, error: r.error });
+      else for (const ph of r.admins) adminPhones.add(ph);
+    }
+  }
+
   // Plan removals: exclude self + admins
   const plan = new Map();
   let protectedSkipped = 0;
@@ -1543,11 +1570,21 @@ app.post("/api/brands/:id/remove-duplicates", async (req, res) => {
       protectedSkipped,
       myPhone: myPhone ? myPhone.slice(0,3) + "***" + myPhone.slice(-4) : null,
       adminCount: adminPhones.size,
+      liveAdminCheck: sessionKey ? (adminCheckFailed.length ? { ok: false, failed: adminCheckFailed } : { ok: true }) : { skipped: "no sessionKey" },
       groups: summary,
     });
   }
 
   if (!sessionKey) return res.status(400).json({ error: "sessionKey required for execute" });
+  // Refuse to execute if we couldn't verify admin status for any group —
+  // the earlier incident (972504472014) happened when admin data was incomplete.
+  if (adminCheckFailed.length) {
+    return res.status(412).json({
+      error: "live admin check failed — refusing to execute",
+      failedGroups: adminCheckFailed,
+      hint: "run /refresh-all first, or ensure session has access to all brand groups",
+    });
+  }
 
   const results = [];
   const removalEvents = []; // individual phone removals for the log
@@ -1638,27 +1675,36 @@ app.post("/api/brands/:id/refresh-all", async (req, res) => {
     const gid = b.groupIds[i];
     try {
       write({ type: "group_start", index: i + 1, groupId: gid });
-      // Fetch live participants via WaSender (bypass cache)
-      const r = await wa("GET", `/groups/${gid}/participants`, null, sessionKey);
+      // Use /metadata primarily — it returns participants WITH admin flags
+      // and the group subject in one call. /participants alone often omits
+      // isAdmin/isSuperAdmin, which caused an earlier run to strip admins
+      // because protection built adminPhones from stale saved data.
+      const mdR = await wa("GET", `/groups/${gid}/metadata`, null, sessionKey);
       let participants;
-      if (r.ok) {
-        participants = Array.isArray(r.data) ? r.data : r.data?.data || [];
-      } else {
-        // Surface a useful message: WaSender 422 is usually "session lost access"
-        // — include their error/message field so the log shows the real reason.
-        const msg = r.data?.message || r.data?.error || (r.data ? JSON.stringify(r.data).slice(0, 160) : "");
-        const hint = r.status === 422 ? "(סשן איבד גישה לקבוצה?)" : "";
-        throw new Error(`wa ${r.status || "fail"}${msg ? " — " + msg : ""}${hint ? " " + hint : ""}`);
+      let groupName = gid;
+      if (mdR.ok) {
+        const md = mdR.data?.data || mdR.data;
+        groupName = md?.subject || gid;
+        participants = Array.isArray(md?.participants) ? md.participants : [];
+      }
+      // Fall back to /participants if metadata didn't return a list
+      if (!participants?.length) {
+        const r = await wa("GET", `/groups/${gid}/participants`, null, sessionKey);
+        if (r.ok) {
+          participants = Array.isArray(r.data) ? r.data : r.data?.data || [];
+        } else {
+          const msg = r.data?.message || r.data?.error || (r.data ? JSON.stringify(r.data).slice(0, 160) : "");
+          const hint = r.status === 422 ? "(סשן איבד גישה לקבוצה?)" : "";
+          throw new Error(`wa ${r.status || "fail"}${msg ? " — " + msg : ""}${hint ? " " + hint : ""}`);
+        }
       }
       const normalized = participants.map(m => ({
         ...m,
         _phone: (m._phone || m.pn || m.jid || m.id || "").replace(/@.*/, "").replace(/\D/g, ""),
+        // Normalize admin flags into a single canonical form so dedup can trust them
+        isAdmin: !!(m.isAdmin || m.isSuperAdmin || m.admin || m.role === "admin" || m.role === "superadmin"),
+        isSuperAdmin: !!(m.isSuperAdmin || m.role === "superadmin"),
       }));
-      let groupName = gid;
-      try {
-        const md = await wa("GET", `/groups/${gid}/metadata`, null, sessionKey);
-        groupName = md.data?.data?.subject || md.data?.subject || gid;
-      } catch {}
 
       const result = await persistGroupDelta(gid, groupName, normalized, {});
       totalJoined += result.new_added;
@@ -1743,6 +1789,40 @@ app.post("/api/brands/:id/remove-duplicates-stream", async (req, res) => {
       phoneMap.get(ph).add(gid);
       if (m.isAdmin || m.isSuperAdmin || m.admin) adminPhones.add(ph);
     }
+  }
+
+  // LIVE ADMIN CROSS-CHECK before planning — merges live admin phones from WaSender
+  // metadata so stale/missing saved data can't let an admin through protection.
+  const liveFailed = [];
+  const liveResults = await Promise.all(b.groupIds.map(async gid => {
+    try {
+      const md = await wa("GET", `/groups/${gid}/metadata`, null, sessionKey);
+      if (!md.ok) return { gid, ok: false, error: `wa ${md.status}` };
+      const parts = (md.data?.data || md.data)?.participants || [];
+      const admins = [];
+      // Also populate groupName/size if saved was missing
+      if (!groupNames.has(gid)) groupNames.set(gid, (md.data?.data || md.data)?.subject || gid);
+      if (!groupSizes.has(gid)) groupSizes.set(gid, parts.length);
+      for (const p of parts) {
+        if (p.isAdmin || p.isSuperAdmin || p.admin || p.role === "admin" || p.role === "superadmin") {
+          const ph = (p._phone || p.pn || p.jid || p.id || "").replace(/@.*/, "").replace(/\D/g, "");
+          if (ph) admins.push(ph);
+        }
+      }
+      return { gid, ok: true, admins };
+    } catch (e) { return { gid, ok: false, error: String(e.message || e).slice(0, 120) }; }
+  }));
+  for (const r of liveResults) {
+    if (!r.ok) liveFailed.push({ gid: r.gid, error: r.error });
+    else for (const ph of r.admins) adminPhones.add(ph);
+  }
+  if (liveFailed.length) {
+    res.status(412).json({
+      error: "live admin check failed — refusing to execute",
+      failedGroups: liveFailed,
+      hint: "run refresh-all first, or ensure session has access to all brand groups",
+    });
+    return;
   }
 
   const plan = new Map();
