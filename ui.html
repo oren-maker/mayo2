@@ -447,16 +447,33 @@ function tabLoadBrandDetail(force) {
         <div>
           <h3 style="font-size:14px;margin-bottom:10px;color:var(--dim)">📋 קבוצות במותג (${stats.groups.length})</h3>
           <div style="max-height:400px;overflow-y:auto">
-            ${stats.groups.map(g => `
+            ${stats.groups.map(g => {
+              const ago = (ts) => {
+                if (!ts) return "—";
+                const diff = Date.now() - new Date(ts).getTime();
+                const m = Math.floor(diff / 60000);
+                if (m < 1) return "לפני רגע";
+                if (m < 60) return `לפני ${m} דק'`;
+                const h = Math.floor(m / 60);
+                if (h < 24) return `לפני ${h} שע'`;
+                const d = Math.floor(h / 24);
+                return `לפני ${d} ימים`;
+              };
+              const stale = g.savedAt && (Date.now() - new Date(g.savedAt).getTime()) > 24*60*60*1000;
+              return `
               <div style="background:var(--bg3);padding:10px 12px;border-radius:8px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:600;display:flex;align-items:center;gap:6px">${esc(g.groupName||g.groupId)} ${g.iAmAdmin ? '<span style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#111;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700">👑</span>' : ''}</div>
-                  <div style="font-size:11px;color:var(--dim)">${g.memberCount||0} חברים · ${g.savedAt ? new Date(g.savedAt).toLocaleDateString("he-IL") : "—"}</div>
+                  <div style="font-size:11px;color:var(--dim)">${g.memberCount||0} חברים</div>
+                  <div style="font-size:11px;margin-top:2px" title="${g.savedAt ? new Date(g.savedAt).toLocaleString('he-IL') : ''}">
+                    <span style="color:var(--dim)">🔄 נמשך לאחרונה:</span>
+                    <b style="color:${g.savedAt ? (stale ? '#fb923c' : 'var(--cyan)') : 'var(--dim)'}">${ago(g.savedAt)}</b>
+                  </div>
                 </div>
                 <button class="btn-green" style="padding:4px 10px;font-size:11px" onclick="exportSavedGroupByGid('${g.groupId}')">⬇</button>
                 <button class="btn-red" style="padding:4px 10px;font-size:11px" onclick="removeGroupFromBrand('${b.id}','${g.groupId}')">🗑</button>
               </div>
-            `).join("") || '<div class="empty">אין קבוצות במותג. הוסף מהטאב קבוצות →</div>'}
+            `;}).join("") || '<div class="empty">אין קבוצות במותג. הוסף מהטאב קבוצות →</div>'}
           </div>
           <button class="btn-green" style="width:100%;margin-top:10px" onclick="addGroupToBrandPrompt('${b.id}')">➕ שייך קבוצה למותג</button>
         </div>
@@ -465,12 +482,15 @@ function tabLoadBrandDetail(force) {
           <h3 style="font-size:14px;margin-bottom:10px;color:var(--dim)">📜 לוג עדכונים (${log.length})</h3>
           <div style="max-height:500px;overflow-y:auto">
             ${log.length ? log.map(l => `
-              <div style="background:var(--bg3);padding:8px 12px;border-radius:8px;margin-bottom:4px;font-size:12px">
-                <span style="color:var(--dim)">${new Date(l.at).toLocaleString("he-IL")}</span> ·
+              <div style="background:var(--bg3);padding:8px 12px;border-radius:8px;margin-bottom:4px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="color:var(--dim)">${new Date(l.at).toLocaleString("he-IL")}</span>
                 <strong style="color:${logColor(l.type)}">${logLabel(l.type)}</strong>
-                ${l.groupName ? ' · ' + esc(l.groupName) : ''}
-                ${l.count ? ' · ' + l.count + ' חברים' : ''}
-                ${l.phone ? ' · ' + esc(l.phone) : ''}
+                ${l.groupName ? '<span style="color:var(--dim)">· ' + esc(l.groupName) + '</span>' : ''}
+                ${l.removed !== undefined ? '<span style="color:var(--green)">· הוסרו ' + l.removed + '</span>' : ''}
+                ${l.failed ? '<span style="color:var(--red)">· נכשלו ' + l.failed + '</span>' : ''}
+                ${l.count ? '<span style="color:var(--dim)">· ' + l.count + ' חברים</span>' : ''}
+                ${l.phone ? '<span style="color:var(--dim)">· ' + esc(l.phone) + '</span>' : ''}
+                ${l.type === "duplicates_removed" ? `<button class="btn-ghost" style="padding:2px 10px;font-size:11px;margin-right:auto" onclick="openRemovalLog('${b.id}','${l.at}','${l.groupId||""}')">📋 הצג לוג</button>` : ''}
               </div>
             `).join("") : '<div class="empty">אין עדכונים</div>'}
           </div>
@@ -481,10 +501,84 @@ function tabLoadBrandDetail(force) {
 }
 
 function logColor(t) {
-  return { brand_created: "var(--green)", group_added: "var(--cyan)", group_removed: "var(--red)", members_joined: "#fbbf24", member_left: "#fb923c", brand_updated: "var(--dim)" }[t] || "var(--dim)";
+  return {
+    brand_created: "var(--green)",
+    group_added: "var(--cyan)",
+    group_removed: "var(--red)",
+    members_joined: "#fbbf24",
+    member_left: "#fb923c",
+    brand_updated: "var(--dim)",
+    admin_granted: "var(--green)",
+    admin_revoked: "var(--red)",
+    duplicates_removed: "#fb923c",
+  }[t] || "var(--dim)";
 }
 function logLabel(t) {
-  return { brand_created: "🏷️ מותג נוצר", group_added: "➕ קבוצה נוספה", group_removed: "➖ קבוצה הוסרה", members_joined: "🆕 הצטרפו", member_left: "🚪 עזב", brand_updated: "✏️ עודכן" }[t] || t;
+  return {
+    brand_created: "🏷️ מותג נוצר",
+    group_added: "➕ קבוצה נוספה",
+    group_removed: "➖ קבוצה הוסרה",
+    members_joined: "🆕 הצטרפו חברים",
+    member_left: "🚪 עזב חבר",
+    brand_updated: "✏️ עודכן",
+    admin_granted: "👑 ניתנו הרשאות אדמין",
+    admin_revoked: "🚫 נשללו הרשאות אדמין",
+    duplicates_removed: "🗑 הוסרו כפולים",
+    broadcast_sent: "📣 דוור נשלח",
+  }[t] || t;
+}
+
+async function openRemovalLog(brandId, at, groupId) {
+  try {
+    const r = await (await fetch(`/api/brands/${brandId}/removals-log`)).json();
+    const runs = r.log || [];
+    // Find the run closest to `at` (entry.at stored as ISO string in ms precision)
+    const target = new Date(at).getTime();
+    let best = null, bestDiff = Infinity;
+    for (const run of runs) {
+      const diff = Math.abs(new Date(run.at).getTime() - target);
+      if (diff < bestDiff) { bestDiff = diff; best = run; }
+    }
+    if (!best) return alert("לא נמצאו פרטי הסרה");
+    const events = best.events || [];
+    const filtered = groupId ? events.filter(e => e.groupId === groupId) : events;
+    const rows = filtered.map((e, i) => `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px;color:var(--dim);font-size:11px">${i + 1}</td>
+        <td style="padding:6px">${esc(e.phone || "—")}</td>
+        <td style="padding:6px;color:${e.ok ? 'var(--green)' : 'var(--red)'}">${e.ok ? '✅ הוסר' : '❌ נכשל'}</td>
+        <td style="padding:6px;font-size:11px;color:var(--dim)">${esc(e.error || e.groupName || "")}</td>
+      </tr>
+    `).join("");
+    let modal = document.getElementById("rlog-modal");
+    if (modal) modal.remove();
+    modal = document.createElement("div");
+    modal.id = "rlog-modal";
+    modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px";
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:320px;max-width:720px;width:100%">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0">📋 לוג הסרת כפולים — ${new Date(best.at).toLocaleString("he-IL")}</h3>
+          <button class="btn-ghost" onclick="document.getElementById('rlog-modal').remove()">✕</button>
+        </div>
+        <div style="font-size:13px;color:var(--dim);margin-bottom:12px">
+          סה"כ ${best.operations} · הצליחו <b style="color:var(--green)">${best.successful}</b> · נכשלו <b style="color:var(--red)">${best.failed}</b>
+        </div>
+        <div style="max-height:440px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead style="background:var(--bg3);position:sticky;top:0">
+              <tr><th style="padding:8px;text-align:right">#</th><th style="padding:8px;text-align:right">טלפון</th><th style="padding:8px;text-align:right">תוצאה</th><th style="padding:8px;text-align:right">פרטים</th></tr>
+            </thead>
+            <tbody>${rows || '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--dim)">אין פרטים</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  } catch (e) {
+    alert("שגיאה בטעינת הלוג: " + e.message);
+  }
 }
 
 async function removeGroupFromBrand(brandId, groupId) {
