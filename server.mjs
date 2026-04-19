@@ -448,6 +448,40 @@ app.get("/api/sessions/:id/groups", async (req, res) => {
 });
 
 // Save delta — only new members (dedup against existing saved group)
+// Upsert today's entry in the per-group daily log.
+// Flow-agnostic: doesn't matter if the member left voluntarily or was kicked.
+async function appendGroupDailyLog(groupId, groupName, joinedPhones, leftPhones, memberCount) {
+  if (!joinedPhones?.length && !leftPhones?.length) return;
+  const safeId = groupId.replace(/[^a-zA-Z0-9]/g, "_");
+  const key = `group-daily-log/${safeId}.json`;
+  const log = (await readJson(key)) || [];
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  let entry = log.find(e => e.date === today);
+  if (!entry) {
+    entry = { date: today, joined: 0, left: 0, joinedPhones: [], leftPhones: [] };
+    log.unshift(entry);
+  }
+  entry.joined += joinedPhones.length;
+  entry.left += leftPhones.length;
+  // Dedup phones within the day
+  const jSet = new Set(entry.joinedPhones);
+  for (const p of joinedPhones) jSet.add(p);
+  entry.joinedPhones = [...jSet].slice(-200);
+  const lSet = new Set(entry.leftPhones);
+  for (const p of leftPhones) lSet.add(p);
+  entry.leftPhones = [...lSet].slice(-200);
+  entry.lastUpdate = new Date().toISOString();
+  entry.groupName = groupName;
+  entry.memberCount = memberCount;
+  await writeJson(key, log.slice(0, 365));
+}
+
+app.get("/api/groups/:groupId/daily-log", async (req, res) => {
+  const safeId = req.params.groupId.replace(/[^a-zA-Z0-9]/g, "_");
+  const log = (await readJson(`group-daily-log/${safeId}.json`)) || [];
+  res.json({ log });
+});
+
 app.post("/api/save-group-delta", async (req, res) => {
   const { groupId, groupName, members, metadata } = req.body;
   if (!groupId || !members) return res.status(400).json({ error: "groupId + members required" });
@@ -485,6 +519,10 @@ app.post("/api/save-group-delta", async (req, res) => {
     members: merged,
   };
   await writeJson(storageKey, payload);
+
+  // Per-group daily log — treats "left voluntarily" and "was removed" the same
+  const newPhones = newMembers.map(m => m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "")).filter(Boolean);
+  await appendGroupDailyLog(groupId, groupName, newPhones, leaverPhones, members.length);
 
   // Emit brand log entries
   await emitMemberChangesToBrands(groupId, groupName, existing?.members || [], members);
@@ -1047,11 +1085,21 @@ async function computeBrandStatsAndCache(b) {
   const groupSizes = new Map();
   let latestSavedAt = null;
 
+  const today = new Date().toISOString().slice(0, 10);
   for (const gid of b.groupIds) {
     const d = savedMap.get(gid);
     if (!d) { groupDetails.push({ groupId: gid, missing: true, iAmAdmin: adminMap.get(gid) || false }); continue; }
     if (!latestSavedAt || d.savedAt > latestSavedAt) latestSavedAt = d.savedAt;
     groupSizes.set(gid, d.memberCount || 0);
+    // Today's delta from the per-group daily log
+    let todayJoined = 0, todayLeft = 0, daily7 = [];
+    try {
+      const safeId = gid.replace(/[^a-zA-Z0-9]/g, "_");
+      const daily = (await readJson(`group-daily-log/${safeId}.json`)) || [];
+      const todayEntry = daily.find(e => e.date === today);
+      if (todayEntry) { todayJoined = todayEntry.joined; todayLeft = todayEntry.left; }
+      daily7 = daily.slice(0, 7).map(e => ({ date: e.date, joined: e.joined, left: e.left }));
+    } catch {}
     groupDetails.push({
       groupId: gid,
       groupName: d.groupName,
@@ -1059,6 +1107,9 @@ async function computeBrandStatsAndCache(b) {
       savedAt: d.savedAt,
       previousSavedAt: d.previousSavedAt,
       iAmAdmin: adminMap.get(gid) || false,
+      todayJoined,
+      todayLeft,
+      daily7,
     });
     for (const m of d.members) {
       const ph = m._phone || (m.pn || m.jid || m.id || "").replace(/@.*/, "");

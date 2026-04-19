@@ -460,16 +460,26 @@ function tabLoadBrandDetail(force) {
                 return `לפני ${d} ימים`;
               };
               const stale = g.savedAt && (Date.now() - new Date(g.savedAt).getTime()) > 24*60*60*1000;
+              const deltaBadges = (g.todayJoined || g.todayLeft) ? `
+                <span title="שינויים היום" style="display:inline-flex;gap:4px;font-size:11px;margin-right:6px">
+                  ${g.todayJoined ? `<span style="background:rgba(34,197,94,0.15);color:var(--green);padding:1px 6px;border-radius:8px">🟢 +${g.todayJoined}</span>` : ''}
+                  ${g.todayLeft ? `<span style="background:rgba(239,68,68,0.15);color:var(--red);padding:1px 6px;border-radius:8px">🔴 -${g.todayLeft}</span>` : ''}
+                </span>` : '';
               return `
               <div style="background:var(--bg3);padding:10px 12px;border-radius:8px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
                 <div style="flex:1;min-width:0">
-                  <div style="font-weight:600;display:flex;align-items:center;gap:6px">${esc(g.groupName||g.groupId)} ${g.iAmAdmin ? '<span style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#111;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700">👑</span>' : ''}</div>
+                  <div style="font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                    <span>${esc(g.groupName||g.groupId)}</span>
+                    ${g.iAmAdmin ? '<span style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#111;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700">👑</span>' : ''}
+                    ${deltaBadges}
+                  </div>
                   <div style="font-size:11px;color:var(--dim)">${g.memberCount||0} חברים</div>
                   <div style="font-size:11px;margin-top:2px" title="${g.savedAt ? new Date(g.savedAt).toLocaleString('he-IL') : ''}">
                     <span style="color:var(--dim)">🔄 נמשך לאחרונה:</span>
                     <b style="color:${g.savedAt ? (stale ? '#fb923c' : 'var(--cyan)') : 'var(--dim)'}">${ago(g.savedAt)}</b>
                   </div>
                 </div>
+                <button class="btn-ghost" style="padding:4px 10px;font-size:11px" title="לוג שינויים יומי" onclick="openGroupDailyLog('${g.groupId}','${esc(g.groupName||'')}')">📅</button>
                 <button class="btn-green" style="padding:4px 10px;font-size:11px" onclick="exportSavedGroupByGid('${g.groupId}')">⬇</button>
                 <button class="btn-red" style="padding:4px 10px;font-size:11px" onclick="removeGroupFromBrand('${b.id}','${g.groupId}')">🗑</button>
               </div>
@@ -526,6 +536,61 @@ function logLabel(t) {
     duplicates_removed: "🗑 הוסרו כפולים",
     broadcast_sent: "📣 דוור נשלח",
   }[t] || t;
+}
+
+async function openGroupDailyLog(groupId, groupName) {
+  try {
+    const r = await (await fetch(`/api/groups/${encodeURIComponent(groupId)}/daily-log`)).json();
+    const log = r.log || [];
+    const rows = log.map(e => {
+      const net = e.joined - e.left;
+      const netColor = net > 0 ? "var(--green)" : net < 0 ? "var(--red)" : "var(--dim)";
+      const netLabel = net > 0 ? `+${net}` : `${net}`;
+      const joinedSample = (e.joinedPhones || []).slice(0, 5).join(", ");
+      const leftSample = (e.leftPhones || []).slice(0, 5).join(", ");
+      const joinedRest = (e.joinedPhones || []).length > 5 ? ` +${e.joinedPhones.length - 5} נוספים` : "";
+      const leftRest = (e.leftPhones || []).length > 5 ? ` +${e.leftPhones.length - 5} נוספים` : "";
+      return `
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px;white-space:nowrap">${e.date}</td>
+          <td style="padding:8px;color:var(--green)" title="${esc(joinedSample + joinedRest)}">🟢 +${e.joined}</td>
+          <td style="padding:8px;color:var(--red)" title="${esc(leftSample + leftRest)}">🔴 -${e.left}</td>
+          <td style="padding:8px;color:${netColor};font-weight:700">${netLabel}</td>
+          <td style="padding:8px;color:var(--dim);font-size:11px">${e.memberCount ?? '—'}</td>
+        </tr>
+      `;
+    }).join("");
+    const totalJ = log.reduce((a, e) => a + e.joined, 0);
+    const totalL = log.reduce((a, e) => a + e.left, 0);
+    let modal = document.getElementById("daily-log-modal");
+    if (modal) modal.remove();
+    modal = document.createElement("div");
+    modal.id = "daily-log-modal";
+    modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px";
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:320px;max-width:720px;width:100%">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0">📅 לוג יומי — ${esc(groupName || groupId)}</h3>
+          <button class="btn-ghost" onclick="document.getElementById('daily-log-modal').remove()">✕</button>
+        </div>
+        <div style="font-size:13px;color:var(--dim);margin-bottom:12px">
+          סה"כ בלוג: <b style="color:var(--green)">+${totalJ}</b> נכנסו · <b style="color:var(--red)">-${totalL}</b> יצאו
+        </div>
+        <div style="max-height:440px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead style="background:var(--bg3);position:sticky;top:0">
+              <tr><th style="padding:8px;text-align:right">תאריך</th><th style="padding:8px;text-align:right">נכנסו</th><th style="padding:8px;text-align:right">יצאו</th><th style="padding:8px;text-align:right">נטו</th><th style="padding:8px;text-align:right">סך חברים</th></tr>
+            </thead>
+            <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--dim)">אין שינויים עדיין. הרץ "רענן" על הקבוצה כדי להתחיל לצבור נתונים.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  } catch (e) {
+    alert("שגיאה בטעינת הלוג: " + e.message);
+  }
 }
 
 async function openRemovalLog(brandId, at, groupId) {
