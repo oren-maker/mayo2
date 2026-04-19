@@ -950,11 +950,30 @@ const BRANDS_FILE = path.join(DATA_DIR, "brands.json");
 const BRAND_LOGS_DIR = path.join(DATA_DIR, "brand-logs");
 await fs.mkdir(BRAND_LOGS_DIR, { recursive: true }).catch(() => {});
 let BRANDS = [];
+let BRANDS_LOADED_OK = false; // set true on first successful read — gate against cascade wipes
 async function ensureBrands() {
-  // Always reload — on Vercel each function call may be a different instance
-  BRANDS = (await readJson("brands.json")) || [];
+  const loaded = await readJson("brands.json");
+  if (loaded === null) {
+    // Read failed OR file doesn't exist. If we've loaded successfully before,
+    // keep the in-memory cache rather than silently falling back to [].
+    // On cold start the array is empty anyway; this only guards against mid-session read failures.
+    if (!BRANDS_LOADED_OK) BRANDS = [];
+    return;
+  }
+  BRANDS = loaded;
+  BRANDS_LOADED_OK = true;
 }
 async function saveBrands() {
+  // Refuse to wipe a previously-populated brands.json with an empty array —
+  // that was the cascade bug that deleted real brands after a transient read failure.
+  if (BRANDS.length === 0 && BRANDS_LOADED_OK) {
+    // Double-check: is the file on disk actually empty? If not, abort the write.
+    const current = await readJson("brands.json");
+    if (Array.isArray(current) && current.length > 0) {
+      console.error("[saveBrands] refusing to overwrite non-empty brands.json with empty array");
+      return;
+    }
+  }
   await writeJson("brands.json", BRANDS);
 }
 
