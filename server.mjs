@@ -867,10 +867,24 @@ async function loadSavedGroupsMap() {
 app.get("/api/brands", async (_, res) => {
   await ensureBrands();
   const savedMap = await loadSavedGroupsMap();
-  const brands = BRANDS.map(b => ({
-    ...b,
-    group_count: b.groupIds.length,
-    total_members: b.groupIds.reduce((a, gid) => a + (savedMap.get(gid)?.memberCount || 0), 0),
+  const brands = await Promise.all(BRANDS.map(async b => {
+    let latestSavedAt = null;
+    for (const gid of b.groupIds) {
+      const sa = savedMap.get(gid)?.savedAt;
+      if (sa && (!latestSavedAt || sa > latestSavedAt)) latestSavedAt = sa;
+    }
+    let statsUpdatedAt = null;
+    try {
+      const c = await loadBrandStatsCache(b.id);
+      if (c?.at) statsUpdatedAt = c.at;
+    } catch {}
+    return {
+      ...b,
+      group_count: b.groupIds.length,
+      total_members: b.groupIds.reduce((a, gid) => a + (savedMap.get(gid)?.memberCount || 0), 0),
+      latest_saved_at: latestSavedAt,
+      stats_updated_at: statsUpdatedAt,
+    };
   }));
   res.json({ brands });
 });

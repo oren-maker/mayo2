@@ -315,12 +315,26 @@ async function loadBrands() {
     const el = document.getElementById("brands-list");
     if (!el) return;
     if (!STATE.brands.length) { el.innerHTML = '<div class="empty">אין מותגים. לחץ "צור מותג חדש"</div>'; return; }
+    const fmtAgo = (ts) => {
+      if (!ts) return "—";
+      const diff = Date.now() - new Date(ts).getTime();
+      const m = Math.floor(diff / 60000);
+      if (m < 1) return "לפני רגע";
+      if (m < 60) return `לפני ${m} דק'`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `לפני ${h} שע'`;
+      const d = Math.floor(h / 24);
+      return `לפני ${d} ימים`;
+    };
     el.innerHTML = STATE.brands.map(b => `
       <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:10px;cursor:pointer;display:flex;align-items:center;gap:14px" onclick="openBrand('${b.id}')">
         <div style="width:48px;height:48px;border-radius:12px;background:${b.color||'var(--green)'};display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏷️</div>
-        <div style="flex:1">
+        <div style="flex:1;min-width:0">
           <div style="font-weight:800;font-size:16px;margin-bottom:2px">${esc(b.name)}</div>
           <div style="font-size:12px;color:var(--dim)">${b.group_count} קבוצות · ${b.total_members} חברים (כולל כפולים)</div>
+          <div style="font-size:11px;color:var(--dim);margin-top:4px" title="${b.latest_saved_at ? new Date(b.latest_saved_at).toLocaleString("he-IL") : ""}">
+            🔄 רענון אחרון: <b style="color:${b.latest_saved_at ? 'var(--cyan)' : 'var(--dim)'}">${fmtAgo(b.latest_saved_at)}</b>
+          </div>
         </div>
         <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
           <button class="btn-ghost" onclick="editBrand('${b.id}')">✏️</button>
