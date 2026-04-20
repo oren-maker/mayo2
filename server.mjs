@@ -474,7 +474,19 @@ async function appendGroupDailyLog(groupId, groupName, joinedPhones, leftPhones,
   if (!joinedPhones?.length && !leftPhones?.length) return;
   const safeId = groupId.replace(/[^a-zA-Z0-9]/g, "_");
   const key = `group-daily-log/${safeId}.json`;
-  const log = (await readJson(key)) || [];
+  const existing = await readJson(key);
+  // Guard: if read returned null but the blob clearly exists, abort to avoid clobbering history
+  if (existing === null) {
+    try {
+      const { head } = await import("@vercel/blob");
+      const h = await head(key).catch(() => null);
+      if (h && h.size > 10) {
+        console.error(`[dailyLog] refusing to overwrite ${key} — read null but blob is ${h.size}B`);
+        return;
+      }
+    } catch {}
+  }
+  const log = existing || [];
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   let entry = log.find(e => e.date === today);
   if (!entry) {
@@ -977,11 +989,37 @@ async function saveBrands() {
   await writeJson("brands.json", BRANDS);
 }
 
+// Safe append: refuses to overwrite an existing non-empty blob with a shorter
+// array if the read looks suspicious (null/empty while the blob clearly exists).
+// Prevents the cascade wipe that happened when Vercel Blob returned 403 silently.
+async function safeAppendList(key, entry, maxLen = 500) {
+  const existing = await readJson(key);
+  if (existing === null) {
+    // Read failed OR file doesn't exist. Double-check via head() — if the blob
+    // exists we refuse to write; writing would clobber the current contents.
+    try {
+      const { head } = await import("@vercel/blob");
+      const h = await head(key).catch(() => null);
+      if (h && h.size > 10) {
+        console.error(`[safeAppend] refusing to overwrite ${key} — read returned null but blob exists (${h.size}B)`);
+        return false;
+      }
+    } catch {}
+    // Blob truly doesn't exist yet — safe to create
+    await writeJson(key, [entry].slice(0, maxLen));
+    return true;
+  }
+  if (!Array.isArray(existing)) {
+    console.error(`[safeAppend] ${key} is not an array; skipping`);
+    return false;
+  }
+  existing.unshift(entry);
+  await writeJson(key, existing.slice(0, maxLen));
+  return true;
+}
+
 async function appendBrandLog(brandId, entry) {
-  const key = `brand-logs/${brandId}.json`;
-  const log = (await readJson(key)) || [];
-  log.unshift({ at: new Date().toISOString(), ...entry });
-  await writeJson(key, log.slice(0, 500));
+  await safeAppendList(`brand-logs/${brandId}.json`, { at: new Date().toISOString(), ...entry }, 500);
 }
 
 // In-memory cache for the full saved-groups map, with TTL.
@@ -1623,9 +1661,7 @@ app.post("/api/brands/:id/remove-duplicates", async (req, res) => {
     });
   }
 
-  // Append to dedicated removals log
-  const removalsKey = `removals-log/${b.id}.json`;
-  const existingRemovals = (await readJson(removalsKey)) || [];
+  // Append to dedicated removals log (guarded)
   const runEntry = {
     runId: `run_${Date.now()}`,
     at: new Date().toISOString(),
@@ -1634,8 +1670,7 @@ app.post("/api/brands/:id/remove-duplicates", async (req, res) => {
     failed: removalEvents.filter(e => !e.ok).length,
     events: removalEvents,
   };
-  existingRemovals.unshift(runEntry);
-  await writeJson(removalsKey, existingRemovals.slice(0, 50));
+  await safeAppendList(`removals-log/${b.id}.json`, runEntry, 50);
 
   invalidateBrandStatsCache(b.id);
   res.json({ executed: true, operations: results.length, results, runId: runEntry.runId });
@@ -1727,10 +1762,8 @@ app.post("/api/brands/:id/refresh-all", async (req, res) => {
   }
   invalidateBrandStatsCache(b.id);
 
-  // Persist the full run to a per-brand log — visible even after the modal closes
+  // Persist the full run to a per-brand log — guarded append
   try {
-    const logKey = `refresh-all-log/${b.id}.json`;
-    const existing = (await readJson(logKey)) || [];
     const runRecord = {
       runId,
       at: runStartedAt,
@@ -1743,8 +1776,7 @@ app.post("/api/brands/:id/refresh-all", async (req, res) => {
       clientDetached: clientGone,
       entries: runEntries,
     };
-    existing.unshift(runRecord);
-    await writeJson(logKey, existing.slice(0, 50));
+    await safeAppendList(`refresh-all-log/${b.id}.json`, runRecord, 50);
   } catch (e) { await logError("refresh-all log", e.message); }
 
   write({ type: "done", successful: b.groupIds.length - failed, failed, totalJoined, totalLeft, runId });
@@ -1889,16 +1921,13 @@ app.post("/api/brands/:id/remove-duplicates-stream", async (req, res) => {
       groupName: groupNames.get(gid), removed: info.ok, failed: info.failed, phones: info.phones,
     });
   }
-  const removalsKey = `removals-log/${b.id}.json`;
-  const existing = (await readJson(removalsKey)) || [];
-  existing.unshift({
+  await safeAppendList(`removals-log/${b.id}.json`, {
     runId: `run_${Date.now()}`, at: new Date().toISOString(),
     operations: removalEvents.length,
     successful: removalEvents.filter(e => e.ok).length,
     failed: removalEvents.filter(e => !e.ok).length,
     events: removalEvents,
-  });
-  await writeJson(removalsKey, existing.slice(0, 50));
+  }, 50);
   invalidateBrandStatsCache(b.id);
 
   write({
