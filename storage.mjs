@@ -19,35 +19,43 @@ function resolveLocalPath(key) {
   return path.join(LOCAL_DATA, key);
 }
 
+async function tryFetch(url, opts) {
+  try { return await fetch(url, { cache: "no-store", ...opts }); }
+  catch { return null; }
+}
+
 export async function readJson(key) {
   if (USE_BLOB) {
-    try {
-      const h = await head(key);
-      if (!h?.url) return null;
-      // Try the downloadUrl first (auth'd), then public url, then add token header
-      const candidates = [h.downloadUrl, h.url].filter(Boolean);
-      for (const u of candidates) {
-        try {
-          const res = await fetch(u, { cache: "no-store" });
-          if (res.ok) return await res.json();
-          if (res.status !== 403) { recordErr("fetch", key, `${res.status} ${res.statusText}`); return null; }
-        } catch (e) { recordErr("fetch", key, e); }
-      }
-      // Last-resort: authenticated fetch with token
-      const tok = process.env.BLOB_READ_WRITE_TOKEN;
-      if (tok && h.url) {
-        try {
-          const res = await fetch(h.url, { cache: "no-store", headers: { Authorization: `Bearer ${tok}` } });
-          if (res.ok) return await res.json();
-          recordErr("fetch-auth", key, `${res.status} ${res.statusText}`);
-        } catch (e) { recordErr("fetch-auth", key, e); }
-      }
-      return null;
-    } catch (e) {
+    let h;
+    try { h = await head(key); }
+    catch (e) {
       if (e?.name === "BlobNotFoundError" || /not found/i.test(e?.message || "")) return null;
-      recordErr("readJson", key, e);
+      recordErr("head", key, e);
       return null;
     }
+    if (!h?.url) return null;
+    const tok = process.env.BLOB_READ_WRITE_TOKEN;
+    // Build a list of URL/header combos to try. Vercel serverless sometimes 403s
+    // the public CDN URL — we fall back to the downloadUrl variant and Bearer.
+    const attempts = [
+      { url: h.url },
+      { url: h.downloadUrl || h.url + "?download=1" },
+      { url: h.url, headers: { Authorization: `Bearer ${tok}` } },
+      { url: h.downloadUrl || h.url + "?download=1", headers: { Authorization: `Bearer ${tok}` } },
+    ];
+    // Retry each attempt up to 2 times with small backoff — intermittent 403
+    for (let pass = 0; pass < 2; pass++) {
+      for (const a of attempts) {
+        const res = await tryFetch(a.url, { headers: a.headers });
+        if (res?.ok) {
+          try { return await res.json(); }
+          catch (e) { recordErr("parse", key, e); return null; }
+        }
+      }
+      if (pass === 0) await new Promise(r => setTimeout(r, 250));
+    }
+    recordErr("fetch", key, `all 4 attempts ×2 failed — size=${h.size}`);
+    return null;
   }
   try { return JSON.parse(await fs.readFile(resolveLocalPath(key), "utf-8")); }
   catch { return null; }

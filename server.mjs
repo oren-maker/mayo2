@@ -1040,6 +1040,13 @@ async function loadSavedGroupsMap(force = false) {
     return d ? [d.groupId, { ...d, file: key.replace(/^saved-groups\//, "") }] : null;
   }));
   const map = new Map(entries.filter(Boolean));
+  // Stale-while-degraded: if new result is smaller than cached AND the cache
+  // was recently built, keep the cached map. Protects the UI when Blob reads
+  // temporarily 403 — brand stats keep showing real data instead of "missing".
+  if (_savedMapCache && _savedMapCache.size > 0 && map.size < _savedMapCache.size * 0.5) {
+    console.error(`[savedMap] refusing to replace cache (${_savedMapCache.size} → ${map.size}); keeping stale`);
+    return _savedMapCache;
+  }
   _savedMapCache = map;
   _savedMapCacheAt = now;
   return map;
@@ -1180,6 +1187,12 @@ app.get("/api/brands/:id/stats", async (req, res) => {
   // No cache or force refresh — compute synchronously
   try {
     const payload = await computeBrandStatsAndCache(b);
+    // If the fresh compute is degenerate (every group missing from savedMap)
+    // AND we have a cached copy, prefer the cache — Blob reads probably failed.
+    const degenerate = payload.groups?.length > 0 && payload.groups.every(g => g.missing);
+    if (degenerate && cached) {
+      return res.json({ ...cached.data, updatedAt: cached.at, cached: true, stale: true, degraded: true, note: "live compute failed — serving last-good cache" });
+    }
     res.json({ ...payload, updatedAt: Date.now(), cached: false });
   } catch (e) {
     if (cached) return res.json({ ...cached.data, updatedAt: cached.at, cached: true, error: e.message });
@@ -1336,7 +1349,12 @@ async function computeBrandStatsAndCache(b) {
       non_admin_groups: groupDetails.filter(g => !g.iAmAdmin).length,
     },
   };
-  await saveBrandStatsCache(b.id, payload);
+  // Refuse to cache a degenerate result — if savedMap failed to load we'd
+  // cache zeros and overwrite the last-good snapshot. Better to return the
+  // broken payload once and let the previous cache keep serving.
+  const allMissing = groupDetails.length > 0 && groupDetails.every(g => g.missing);
+  if (!allMissing) await saveBrandStatsCache(b.id, payload);
+  else console.error(`[stats] refusing to cache empty stats for brand ${b.id} — every group missing from savedMap`);
   return payload;
 }
 
