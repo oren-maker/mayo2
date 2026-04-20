@@ -514,6 +514,14 @@ app.get("/api/groups/:groupId/daily-log", async (req, res) => {
   res.json({ log });
 });
 
+// Per-group member events (joined / left) with timestamps
+app.get("/api/groups/:groupId/events", async (req, res) => {
+  const safeId = req.params.groupId.replace(/[^a-zA-Z0-9]/g, "_");
+  const events = (await readJson(`group-events/${safeId}.json`)) || [];
+  const limit = Math.min(Number(req.query.limit) || 500, 5000);
+  res.json({ events: events.slice(0, limit), total: events.length });
+});
+
 // Core save-group-delta logic extracted so /refresh-all can call it directly
 async function persistGroupDelta(groupId, groupName, members, metadata) {
   const safeId = groupId.replace(/[^a-zA-Z0-9]/g, "_");
@@ -546,6 +554,19 @@ async function persistGroupDelta(groupId, groupName, members, metadata) {
   };
   await writeJson(storageKey, payload);
   invalidateSavedMap();
+  // Build a phone → name map so the events log shows readable names
+  const nameByPhone = {};
+  for (const m of members) {
+    const ph = phoneOf(m);
+    const nm = m.verifiedName || m.name || m.notify || m.pushname || "";
+    if (ph && nm) nameByPhone[ph] = nm;
+  }
+  for (const m of existing?.members || []) {
+    const ph = phoneOf(m);
+    const nm = m.verifiedName || m.name || m.notify || m.pushname || "";
+    if (ph && nm && !nameByPhone[ph]) nameByPhone[ph] = nm;
+  }
+  await appendGroupEvents(groupId, newPhones, leaverPhones, nameByPhone);
   await appendGroupDailyLog(groupId, groupName, newPhones, leaverPhones, members.length);
   await emitMemberChangesToBrands(groupId, groupName, existing?.members || [], members);
   return {
@@ -1020,6 +1041,41 @@ async function safeAppendList(key, entry, maxLen = 500) {
 
 async function appendBrandLog(brandId, entry) {
   await safeAppendList(`brand-logs/${brandId}.json`, { at: new Date().toISOString(), ...entry }, 500);
+}
+
+// Batch variant — unshifts many entries in one read-then-write cycle.
+// Used for per-group event streams where a single refresh can emit 100s.
+async function safeAppendMany(key, entries, maxLen = 2000) {
+  if (!entries?.length) return true;
+  const existing = await readJson(key);
+  if (existing === null) {
+    try {
+      const { head } = await import("@vercel/blob");
+      const h = await head(key).catch(() => null);
+      if (h && h.size > 10) {
+        console.error(`[safeAppendMany] refusing to overwrite ${key} — read null but blob is ${h.size}B`);
+        return false;
+      }
+    } catch {}
+    await writeJson(key, entries.slice(0, maxLen));
+    return true;
+  }
+  if (!Array.isArray(existing)) return false;
+  await writeJson(key, [...entries, ...existing].slice(0, maxLen));
+  return true;
+}
+
+// Per-group member event log — every join/leave that persistGroupDelta detects,
+// with its own timestamp. Used by the UI to show the detailed history beyond
+// the daily summary.
+async function appendGroupEvents(groupId, joinedPhones, leftPhones, nameByPhone = {}) {
+  if (!joinedPhones?.length && !leftPhones?.length) return;
+  const safeId = groupId.replace(/[^a-zA-Z0-9]/g, "_");
+  const at = new Date().toISOString();
+  const entries = [];
+  for (const ph of joinedPhones) entries.push({ at, event: "joined", phone: ph, name: nameByPhone[ph] || null });
+  for (const ph of leftPhones)   entries.push({ at, event: "left",   phone: ph, name: nameByPhone[ph] || null });
+  await safeAppendMany(`group-events/${safeId}.json`, entries, 5000);
 }
 
 // In-memory cache for the full saved-groups map, with TTL.
