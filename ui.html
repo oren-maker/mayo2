@@ -299,9 +299,12 @@ function renderBrands() {
   if (STATE.activeBrandId) return renderBrandDetail();
   return `
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2>🏷️ מותגים</h2>
-        <button class="btn-green" onclick="createBrand()">➕ צור מותג חדש</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:8px;flex-wrap:wrap">
+        <h2 style="margin:0">🏷️ מותגים</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn-ghost" onclick="openDailySummary()">📊 סיכום יומי</button>
+          <button class="btn-green" onclick="createBrand()">➕ צור מותג חדש</button>
+        </div>
       </div>
       <div id="brands-list"><div class="loading"><div class="spinner"></div>טוען...</div></div>
     </div>
@@ -2665,6 +2668,103 @@ function showUndo(message, undoFn, timeoutMs = 8000) {
 applyHash();
 checkHealth();
 setTimeout(loadSessions, 500);
+
+// ========== DAILY SUMMARY ==========
+async function openDailySummary() {
+  let m = document.getElementById("daily-sum-modal");
+  if (m) m.remove();
+  m = document.createElement("div");
+  m.id = "daily-sum-modal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px";
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  m.innerHTML = `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:360px;max-width:820px;width:100%;max-height:90vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="margin:0">📊 סיכום יומי</h3>
+        <button class="btn-ghost" onclick="document.getElementById('daily-sum-modal').remove()">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:10px">
+        הקרון רץ אוטומטית כל יום ב-05:00 UTC (08:00 שעון ישראל) ומעדכן כל הקבוצות.
+        כל ריצה נשמרת כאן עם סיכום של נכנסו/יצאו.
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button id="ds-run-now" class="btn-green" onclick="triggerDailySummaryNow()">▶ הרץ עכשיו</button>
+        <button class="btn-ghost" onclick="loadDailySummary()">🔄 טען שוב</button>
+      </div>
+      <div id="ds-body" style="flex:1;overflow-y:auto">
+        <div class="loading"><div class="spinner"></div>טוען...</div>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  loadDailySummary();
+}
+
+async function loadDailySummary() {
+  const body = document.getElementById("ds-body");
+  if (!body) return;
+  try {
+    const r = await (await fetch("/api/daily-summary")).json();
+    const runs = r.log || [];
+    if (!runs.length) {
+      body.innerHTML = '<div class="empty">אין עדיין ריצות. הקרון ירוץ אוטומטית, או לחץ "הרץ עכשיו".</div>';
+      return;
+    }
+    body.innerHTML = runs.map((s, idx) => `
+      <details ${idx === 0 ? "open" : ""} style="margin-bottom:10px;background:var(--bg3);border-radius:8px;padding:10px">
+        <summary style="cursor:pointer;font-weight:700;font-size:13px">
+          ${new Date(s.at).toLocaleString("he-IL")}
+          <span style="color:var(--mute);font-size:11px">· ${s.trigger || 'manual'}</span>
+          · <span style="color:var(--green)">+${s.grandTotalJoined||0}</span>
+          / <span style="color:var(--red)">-${s.grandTotalLeft||0}</span>
+          · ${s.okBrands||0}/${s.totalBrands||0} מותגים
+          ${s.failBrands ? `<span style="color:var(--red)"> · ${s.failBrands} נכשלו</span>` : ""}
+        </summary>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
+          <thead><tr style="background:var(--bg);font-size:11px;color:var(--dim)">
+            <th style="padding:6px;text-align:right">מותג</th>
+            <th style="padding:6px;text-align:right">קבוצות</th>
+            <th style="padding:6px;text-align:right">נכנסו</th>
+            <th style="padding:6px;text-align:right">יצאו</th>
+            <th style="padding:6px;text-align:right">נכשלו</th>
+          </tr></thead>
+          <tbody>
+            ${(s.brands || []).map(b => `
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:6px">${esc(b.brandName || b.brandId || "?")}</td>
+                <td style="padding:6px">${b.total || 0}</td>
+                <td style="padding:6px;color:var(--green)">+${b.totalJoined || 0}</td>
+                <td style="padding:6px;color:var(--red)">-${b.totalLeft || 0}</td>
+                <td style="padding:6px;${b.failed ? 'color:var(--red)' : 'color:var(--dim)'}">${b.failed || 0}${b.error ? ' · ' + esc(b.error.slice(0,60)) : ''}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </details>
+    `).join("");
+  } catch (e) {
+    body.innerHTML = `<div class="error">שגיאה: ${esc(e.message)}</div>`;
+  }
+}
+
+async function triggerDailySummaryNow() {
+  const btn = document.getElementById("ds-run-now");
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = "רץ... (עד 5 דקות)";
+  try {
+    const r = await fetch("/api/daily-summary/run", { method: "POST" });
+    const data = await r.json();
+    if (!r.ok) {
+      alert("שגיאה: " + (data.error || r.status));
+    } else {
+      flash(`✅ +${data.grandTotalJoined||0} / -${data.grandTotalLeft||0} · ${data.okBrands||0}/${data.totalBrands||0} מותגים`);
+      loadDailySummary();
+    }
+  } catch (e) {
+    alert("שגיאה: " + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "▶ הרץ עכשיו";
+  }
+}
 
 // ========== RAG CHAT ==========
 function openRagChat() {

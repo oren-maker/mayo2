@@ -144,6 +144,8 @@ app.use((req, res, next) => {
   // Skip auth for login page/endpoint AND public webhook
   if (req.path === "/login" || req.path === "/api/login") return next();
   if (req.path.startsWith("/api/webhook/")) return next();
+  // Vercel Cron has its own Bearer-token check inside the handler
+  if (req.path.startsWith("/api/cron/")) return next();
   const cookies = parseCookies(req.headers.cookie);
   const session = verifyCookie(cookies[COOKIE_NAME]);
   if (session) return next();
@@ -1791,6 +1793,91 @@ app.get("/api/brands/:id/removals-log", async (req, res) => {
 // Streaming remove-duplicates — returns ndjson progress
 // Bulk refresh — fetch members for every group in a brand, stream ndjson progress.
 // Client calls this with sessionKey (WaSender API key).
+// Reusable: refresh a single group's members and persist delta/log.
+// Returns a row suitable for aggregation. Thrown errors are caught by caller.
+async function refreshOneGroup(gid, sessionKey) {
+  const mdR = await wa("GET", `/groups/${gid}/metadata`, null, sessionKey);
+  let participants;
+  let groupName = gid;
+  if (mdR.ok) {
+    const md = mdR.data?.data || mdR.data;
+    groupName = md?.subject || gid;
+    participants = Array.isArray(md?.participants) ? md.participants : [];
+  }
+  if (!participants?.length) {
+    const r = await wa("GET", `/groups/${gid}/participants`, null, sessionKey);
+    if (r.ok) {
+      participants = Array.isArray(r.data) ? r.data : r.data?.data || [];
+    } else {
+      const msg = r.data?.message || r.data?.error || (r.data ? JSON.stringify(r.data).slice(0, 160) : "");
+      const hint = r.status === 422 ? "(session lost access?)" : "";
+      throw new Error(`wa ${r.status || "fail"}${msg ? " — " + msg : ""}${hint ? " " + hint : ""}`);
+    }
+  }
+  const normalized = participants.map(m => ({
+    ...m,
+    _phone: (m._phone || m.pn || m.jid || m.id || "").replace(/@.*/, "").replace(/\D/g, ""),
+    isAdmin: !!(m.isAdmin || m.isSuperAdmin || m.admin || m.role === "admin" || m.role === "superadmin"),
+    isSuperAdmin: !!(m.isSuperAdmin || m.role === "superadmin"),
+  }));
+  const result = await persistGroupDelta(gid, groupName, normalized, {});
+  MEMBERS_CACHE.delete(gid);
+  return {
+    groupId: gid,
+    groupName,
+    ok: true,
+    joined: result.new_added,
+    left: result.leavers,
+    total: result.total,
+  };
+}
+
+// Reusable: refresh every group in a brand. Writes the per-brand refresh-all log.
+// Returns a summary row { brandId, brandName, successful, failed, totalJoined, totalLeft, entries }.
+async function refreshBrandAll(brand, sessionKey) {
+  const runId = `run_${Date.now()}`;
+  const runStartedAt = new Date().toISOString();
+  const entries = [];
+  let totalJoined = 0, totalLeft = 0, failed = 0;
+  for (const gid of brand.groupIds) {
+    try {
+      const row = await refreshOneGroup(gid, sessionKey);
+      totalJoined += row.joined;
+      totalLeft += row.left;
+      entries.push(row);
+    } catch (e) {
+      failed++;
+      entries.push({ groupId: gid, ok: false, error: String(e.message || e).slice(0, 200) });
+    }
+  }
+  invalidateBrandStatsCache(brand.id);
+  try {
+    await safeAppendList(`refresh-all-log/${brand.id}.json`, {
+      runId,
+      at: runStartedAt,
+      finishedAt: new Date().toISOString(),
+      total: brand.groupIds.length,
+      successful: brand.groupIds.length - failed,
+      failed,
+      totalJoined,
+      totalLeft,
+      entries,
+    }, 50);
+  } catch (e) { await logError("refresh-all log", e.message); }
+  return {
+    brandId: brand.id,
+    brandName: brand.name,
+    runId,
+    at: runStartedAt,
+    total: brand.groupIds.length,
+    successful: brand.groupIds.length - failed,
+    failed,
+    totalJoined,
+    totalLeft,
+    entries,
+  };
+}
+
 app.post("/api/brands/:id/refresh-all", async (req, res) => {
   await ensureBrands();
   const b = BRANDS.find(x => x.id === req.params.id);
@@ -1893,6 +1980,91 @@ app.post("/api/brands/:id/refresh-all", async (req, res) => {
 app.get("/api/brands/:id/refresh-all-log", async (req, res) => {
   const log = (await readJson(`refresh-all-log/${req.params.id}.json`)) || [];
   res.json({ log });
+});
+
+// ========== DAILY CRON ==========
+// Vercel Cron calls this once per day. Iterates every brand, refreshes all its
+// groups (metadata → members → delta), and persists a brand-wide summary row
+// to daily-summary-log.json. Per-group events/daily-log already written inside
+// persistGroupDelta — this is the aggregate layer.
+// Auth: Vercel Cron auto-sets Authorization: Bearer $CRON_SECRET. Callers
+// without a matching secret get 401.
+async function runDailyRefresh() {
+  await ensureBrands();
+  if (!SESSIONS_CACHE?.length) { try { await refreshSessions(); } catch {} }
+  const session = (SESSIONS_CACHE || []).find(s => ["connected","ready"].includes((s.status||"").toLowerCase()));
+  if (!session?.api_key) {
+    throw new Error("no connected session — cron cannot authenticate to WaSender");
+  }
+  const sessionKey = session.api_key;
+
+  const startedAt = new Date().toISOString();
+  const brandSummaries = [];
+  let grandJoined = 0, grandLeft = 0, okBrands = 0, failBrands = 0;
+
+  for (const b of BRANDS) {
+    try {
+      const s = await refreshBrandAll(b, sessionKey);
+      brandSummaries.push(s);
+      grandJoined += s.totalJoined;
+      grandLeft += s.totalLeft;
+      if (s.failed === 0) okBrands++; else failBrands++;
+    } catch (e) {
+      failBrands++;
+      brandSummaries.push({
+        brandId: b.id, brandName: b.name,
+        error: String(e.message || e).slice(0, 240),
+      });
+    }
+  }
+
+  const summary = {
+    at: startedAt,
+    finishedAt: new Date().toISOString(),
+    trigger: "cron",
+    totalBrands: BRANDS.length,
+    okBrands,
+    failBrands,
+    grandTotalJoined: grandJoined,
+    grandTotalLeft: grandLeft,
+    brands: brandSummaries,
+  };
+  await safeAppendList("daily-summary-log.json", summary, 365);
+  return summary;
+}
+
+// Cron trigger endpoint — Vercel hits this on the schedule in vercel.json
+app.get("/api/cron/daily-refresh", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret) {
+    const auth = req.headers.authorization || "";
+    if (auth !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+  }
+  try {
+    const s = await runDailyRefresh();
+    res.json({ ok: true, ...s });
+  } catch (e) {
+    await logError("cron daily-refresh", e.message);
+    res.status(500).json({ error: String(e.message || e).slice(0, 300) });
+  }
+});
+
+// View the aggregated daily summaries (last 365 entries)
+app.get("/api/daily-summary", async (_req, res) => {
+  const log = (await readJson("daily-summary-log.json")) || [];
+  res.json({ log });
+});
+
+// Manual trigger — same flow as cron but with cookie auth (for testing)
+app.post("/api/daily-summary/run", async (_req, res) => {
+  try {
+    const s = await runDailyRefresh();
+    res.json({ ok: true, ...s });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e).slice(0, 300) });
+  }
 });
 
 app.post("/api/brands/:id/remove-duplicates-stream", async (req, res) => {
