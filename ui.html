@@ -2665,6 +2665,105 @@ function showUndo(message, undoFn, timeoutMs = 8000) {
 applyHash();
 checkHealth();
 setTimeout(loadSessions, 500);
+
+// ========== RAG CHAT ==========
+function openRagChat() {
+  let m = document.getElementById("rag-modal");
+  if (m) { m.style.display = "flex"; document.getElementById("rag-input")?.focus(); return; }
+  m = document.createElement("div");
+  m.id = "rag-modal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px";
+  m.onclick = e => { if (e.target === m) m.style.display = "none"; };
+  m.innerHTML = `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:320px;max-width:700px;width:100%;max-height:90vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h3 style="margin:0">💬 שאל את הנתונים שלך</h3>
+        <button class="btn-ghost" onclick="document.getElementById('rag-modal').style.display='none'">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:10px">
+        המערכת עונה על שאלות לפי הקבוצות, האדמינים והאירועים שנסרקו. לדוגמה:
+        "מי האדמינים של SUN TRIBE D?" · "כמה קבוצות יש במותג סאן טרייב?"
+      </div>
+      <div id="rag-log" style="flex:1;min-height:200px;max-height:50vh;overflow-y:auto;background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:10px;font-size:13px;line-height:1.6"></div>
+      <div style="display:flex;gap:8px">
+        <input id="rag-input" placeholder="שאל שאלה..." style="flex:1;padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text)" onkeydown="if(event.key==='Enter')submitRagQuestion()" />
+        <button id="rag-send" class="btn-green" onclick="submitRagQuestion()">שלח</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  setTimeout(() => document.getElementById("rag-input")?.focus(), 50);
+}
+
+async function submitRagQuestion() {
+  const inp = document.getElementById("rag-input");
+  const btn = document.getElementById("rag-send");
+  const log = document.getElementById("rag-log");
+  const q = (inp.value || "").trim();
+  if (!q) return;
+  inp.value = "";
+  btn.disabled = true; btn.textContent = "שולח...";
+
+  // Render the question bubble
+  const qDiv = document.createElement("div");
+  qDiv.style.cssText = "margin-bottom:8px;padding:8px 12px;background:var(--bg2);border-radius:8px;border-right:3px solid var(--green)";
+  qDiv.innerHTML = `<b>${esc(q)}</b>`;
+  log.appendChild(qDiv);
+
+  // Placeholder "thinking"
+  const aDiv = document.createElement("div");
+  aDiv.style.cssText = "margin-bottom:14px;padding:8px 12px;background:var(--bg);border-radius:8px;color:var(--dim)";
+  aDiv.innerHTML = `<div class="loading"><div class="spinner"></div>חושב...</div>`;
+  log.appendChild(aDiv);
+  log.scrollTop = log.scrollHeight;
+
+  try {
+    const r = await fetch("/api/rag/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: q }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      aDiv.style.color = "var(--red)";
+      const msg = data?.detail?.error || data?.error || `HTTP ${r.status}`;
+      aDiv.innerHTML = `<b style="color:var(--red)">שגיאה:</b> ${esc(msg)}`;
+      return;
+    }
+    const flags = [];
+    if (data.cached) flags.push('<span style="color:var(--mute)">💾 מקאש</span>');
+    if (data.retry_count > 0) flags.push(`<span style="color:#fbbf24">🔄 retry: ${data.retry_count}</span>`);
+    if (data.gave_up) flags.push('<span style="color:var(--red)">🚪 נכנע</span>');
+    else if (data.grounded) flags.push('<span style="color:var(--green)">✓ מבוסס</span>');
+    const cites = (data.citations || []).map(c =>
+      `<span style="display:inline-block;background:var(--bg3);padding:2px 8px;border-radius:6px;font-size:11px;margin:2px;color:var(--cyan)" title="${esc((c.snippet||'').slice(0,120))}">${esc(c.source||'?')}#${c.chunk_index}</span>`
+    ).join("");
+    aDiv.style.color = "var(--text)";
+    aDiv.innerHTML = `
+      <div style="white-space:pre-wrap">${esc(data.answer||'')}</div>
+      <div style="margin-top:8px;font-size:11px;color:var(--dim)">${flags.join(" · ")}</div>
+      ${cites ? `<div style="margin-top:6px">${cites}</div>` : ''}
+    `;
+  } catch (e) {
+    aDiv.style.color = "var(--red)";
+    aDiv.innerHTML = `<b>שגיאה:</b> ${esc(e.message)}`;
+  } finally {
+    btn.disabled = false; btn.textContent = "שלח";
+    log.scrollTop = log.scrollHeight;
+    document.getElementById("rag-input")?.focus();
+  }
+}
+
+// Floating trigger button — always visible
+(function mountRagBubble() {
+  const b = document.createElement("button");
+  b.innerHTML = "💬";
+  b.title = "שאל את הנתונים";
+  b.onclick = openRagChat;
+  b.style.cssText = "position:fixed;bottom:20px;left:20px;z-index:150;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--cyan));color:#fff;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 20px rgba(37,211,102,0.4);transition:transform 0.2s";
+  b.onmouseenter = () => b.style.transform = "scale(1.1)";
+  b.onmouseleave = () => b.style.transform = "scale(1)";
+  document.body.appendChild(b);
+})();
 </script>
 </body>
 </html>

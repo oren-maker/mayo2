@@ -632,6 +632,38 @@ app.get("/api/sessions/:id/groups/:groupId/participants", async (req, res) => {
 });
 
 // Error log endpoint
+// ========== RAG proxy ==========
+// Forwards /ask questions to the Self-Healing RAG service (mayo-rag.vercel.app).
+// Keeps RAG_SERVICE_API_KEY server-side so the browser never sees it.
+const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL || "https://mayo-rag.vercel.app";
+const RAG_SERVICE_API_KEY = process.env.RAG_SERVICE_API_KEY || "";
+
+app.post("/api/rag/ask", async (req, res) => {
+  if (!RAG_SERVICE_API_KEY) {
+    return res.status(500).json({ error: "RAG_SERVICE_API_KEY not configured" });
+  }
+  const { question } = req.body || {};
+  if (!question || typeof question !== "string" || !question.trim()) {
+    return res.status(400).json({ error: "question is required" });
+  }
+  try {
+    const upstream = await fetch(`${RAG_SERVICE_URL}/ask`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-KEY": RAG_SERVICE_API_KEY,
+      },
+      body: JSON.stringify({ question: question.trim() }),
+    });
+    const text = await upstream.text();
+    res.status(upstream.status);
+    res.set("Content-Type", upstream.headers.get("content-type") || "application/json");
+    res.send(text);
+  } catch (e) {
+    res.status(502).json({ error: "rag service unreachable", detail: String(e.message || e).slice(0, 200) });
+  }
+});
+
 app.get("/api/error-log", async (_, res) => {
   const log = (await readJson("error-log.json")) || [];
   res.json({ log });
